@@ -1,0 +1,15 @@
+[package]
+name = "trace-tally"
+version = "0.0.0-alpha.1"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Pingid/trace-tally"
+authors = ["Dan Beaven"]
+description = "A tracing layer for rendering hierarchical task trees to the terminal"
+keywords = ["tracing", "logging", "terminal", "tree", "subscriber"]
+categories = ["development-tools::debugging", "command-line-interface"]
+
+[dependencies]
+indexmap = "2.13.0"
+tracing = "0.1.44"
+tracing-subscriber = "0.3.22"

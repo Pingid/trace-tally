@@ -1,0 +1,179 @@
+use std::io::Write;
+use std::sync::mpsc;
+use trace_tally::{EventMapper, EventView, Renderer, TallyLayer, Target, TaskRenderer, TaskView};
+
+const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+#[derive(Debug, Default)]
+struct TestRenderer {
+    tick: usize,
+}
+
+impl Renderer for TestRenderer {
+    type EventData = String;
+    type TaskData = String;
+
+    fn on_render_start(&mut self) {
+        self.tick = (self.tick + 1) % SPINNER_FRAMES.len();
+    }
+
+    fn task_start(
+        &mut self,
+        target: &mut Target<'_>,
+        span: TaskView<'_, Self>,
+    ) -> Result<(), std::io::Error> {
+        let indent = " ".repeat(span.depth());
+        let frame = SPINNER_FRAMES[self.tick % SPINNER_FRAMES.len()];
+        writeln!(target, "{} {} {}", indent, frame, span.data())
+    }
+
+    fn event(
+        &mut self,
+        target: &mut Target<'_>,
+        event: EventView<'_, Self>,
+    ) -> Result<(), std::io::Error> {
+        if event.is_root() {
+            writeln!(target, "{}", event.data())
+        } else {
+            let indent = " ".repeat(event.depth());
+            writeln!(target, "{}   -> {}", indent, event.data())
+        }
+    }
+
+    fn task_end(
+        &mut self,
+        target: &mut Target<'_>,
+        span: TaskView<'_, Self>,
+    ) -> Result<(), std::io::Error> {
+        let indent = " ".repeat(span.depth());
+        writeln!(target, "{}✓ {}", indent, span.data())
+    }
+}
+
+struct TestEventMapper;
+
+impl EventMapper<TestRenderer> for TestEventMapper {
+    fn map_event(event: &tracing::Event<'_>) -> String {
+        let mut message = String::new();
+        event.record(&mut MessageVisitor(&mut message));
+        message
+    }
+    fn map_span(attrs: &tracing::span::Attributes<'_>) -> String {
+        attrs.metadata().name().to_string()
+    }
+}
+
+struct MessageVisitor<'a>(&'a mut String);
+
+impl<'a> tracing::field::Visit for MessageVisitor<'a> {
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        if field.name() == "message" {
+            *self.0 = format!("{:?}", value);
+        }
+    }
+}
+
+fn main() {
+    use tracing::{info, info_span};
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+
+    let (tx, rx) = mpsc::channel();
+
+    let layer = TestEventMapper::layer(tx.clone());
+    tracing_subscriber::registry().with(layer.clone()).init();
+
+    let handle = std::thread::spawn(move || {
+        let mut writer = TaskRenderer::new(TestRenderer::default());
+
+        loop {
+            while let Ok(action) = rx.try_recv() {
+                let exist = action.is_exit();
+                writer.update(action);
+                if exist {
+                    writer.render(&mut std::io::stderr()).unwrap();
+                    return;
+                }
+            }
+            writer.render(&mut std::io::stderr()).unwrap();
+            sleep(200);
+        }
+    });
+
+    info!("loading config from deploy.toml");
+    sleep(100);
+    info!("resolved 14 packages in 0.3s");
+    sleep(100);
+    info!("starting build pipeline");
+
+    let task1 = std::thread::spawn(move || {
+        let span = info_span!("compile");
+        let steps = [
+            "parsing source files",
+            "resolving dependencies",
+            "type checking",
+            "generating IR",
+            "optimizing (level 2)",
+            "linking objects",
+            "emitting binary (2.4 MB)",
+        ];
+        for step in steps {
+            sleep(500);
+            span.in_scope(|| info!("{step}"));
+        }
+    });
+
+    let task2 = std::thread::spawn(move || {
+        let span = info_span!("docker build");
+        let steps = [
+            "pulling base image rust:1.82-slim",
+            "layer 1/5: installing system deps",
+            "layer 2/5: copying lockfile",
+            "layer 3/5: fetching crate registry",
+            "layer 4/5: compiling release binary",
+            "layer 5/5: copying assets",
+            "tagging image app:a3f7c2d",
+            "pushing to registry.example.com",
+        ];
+        for step in steps {
+            sleep(400);
+            span.in_scope(|| info!("{step}"));
+        }
+    });
+
+    let task3 = std::thread::spawn(move || {
+        let root_span = info_span!("deploy");
+        let environments = ["staging", "canary", "production"];
+
+        for env in environments {
+            sleep(600);
+            root_span.in_scope(|| info!("preparing {env} rollout"));
+
+            let child_span = info_span!(parent: &root_span, "deploy:{env}");
+            let steps = [
+                "running preflight checks",
+                "draining existing connections",
+                "swapping containers",
+                "waiting for health check",
+            ];
+
+            for step in steps {
+                sleep(800);
+                child_span.in_scope(|| info!("{step}"));
+            }
+
+            child_span.in_scope(|| info!("{env} is live"));
+        }
+    });
+
+    task1.join().unwrap();
+    task2.join().unwrap();
+    task3.join().unwrap();
+
+    layer.exit();
+    handle.join().unwrap();
+}
+
+fn sleep(ms: u64) {
+    std::thread::sleep(std::time::Duration::from_millis(ms));
+}
