@@ -96,6 +96,10 @@ impl<R: Renderer> TaskRegistry<R> {
     pub(crate) fn apply_action(&mut self, action: Action<R>) {
         match action {
             Action::Event { parent, event } => {
+                if parent == Some(TaskId::ROOT) {
+                    self.root().events.push_back(event);
+                    return;
+                }
                 if let Some(task) = self.resolve_task(parent) {
                     task.events.push_back(event);
                     if task.events.len() > 3 {
