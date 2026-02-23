@@ -5,31 +5,21 @@ use indexmap::{IndexMap, IndexSet};
 use crate::{Action, Renderer};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct TaskId {
-    /// The raw ID from the source (e.g., tracing::Id)
-    inner: u64,
-    /// A unique session or generation counter to prevent collisions
-    /// if IDs are recycled by the subscriber.
-    generation: u64,
-}
+pub struct TaskId(usize);
 
 impl TaskId {
     /// A reserved ID for the virtual root task.
-    pub const ROOT: Self = Self {
-        inner: 0,
-        generation: 0,
-    };
+    pub const ROOT: Self = Self(0);
 
     /// Check if this ID refers to the root.
     pub fn is_root(&self) -> bool {
-        self.inner == 0 && self.generation == 0
+        self.0 == 0
     }
 
-    pub fn new(id: u64, generation: u64) -> Self {
-        Self {
-            inner: id,
-            generation,
-        }
+    pub fn new(id: usize) -> Self {
+        #[cfg(debug_assertions)]
+        assert!(id > 0, "Task ID must be greater than 0");
+        Self(id)
     }
 }
 

@@ -107,7 +107,7 @@ struct TestEnv {
     term: VirtualTerm,
     writer: TaskRenderer<TestRenderer>,
     task: Option<TaskId>,
-    counter: u64,
+    counter: usize,
 }
 
 impl TestEnv {
@@ -128,7 +128,7 @@ impl TestEnv {
     }
 
     fn span(&mut self, name: &str, f: impl FnOnce(&mut Self)) -> TaskId {
-        let id = TaskId::new(self.counter, self.counter);
+        let id = TaskId::new(self.counter);
         self.counter += 1;
         self.writer.update(Action::TaskStart {
             id,

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::marker::PhantomData;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use tracing::Subscriber;
@@ -45,7 +45,7 @@ pub fn task_layer<R: Renderer, M: EventMapper<R>, T: ActionSender<R>>(
 
 #[derive(Clone, Default)]
 pub struct IdProvider {
-    generation: Arc<AtomicU64>,
+    generation: Arc<AtomicUsize>,
     mapping: Arc<Mutex<HashMap<tracing::Id, TaskId>>>,
 }
 
@@ -54,7 +54,7 @@ impl IdProvider {
         let mut map = self.mapping.lock().unwrap();
         *map.entry(id.clone()).or_insert_with(|| {
             let generation = self.generation.fetch_add(1, Ordering::Relaxed);
-            TaskId::new(id.into_u64(), generation)
+            TaskId::new(generation)
         })
     }
 
