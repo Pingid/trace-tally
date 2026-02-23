@@ -82,14 +82,18 @@ impl Renderer for TestRenderer {
     type TaskData = String;
 
     fn render_task_line(
-        &mut self, target: &mut crate::FrameWriter<'_>, task: &crate::TaskView<'_, Self>,
+        &mut self,
+        target: &mut crate::FrameWriter<'_>,
+        task: &crate::TaskView<'_, Self>,
     ) -> Result<(), std::io::Error> {
         let indent = " ".repeat(task.depth());
         writeln!(target, "{}{}", indent, task.data())
     }
 
     fn render_event_line(
-        &mut self, target: &mut crate::FrameWriter<'_>, task: &crate::EventView<'_, Self>,
+        &mut self,
+        target: &mut crate::FrameWriter<'_>,
+        task: &crate::EventView<'_, Self>,
     ) -> Result<(), std::io::Error> {
         let indent = " ".repeat(task.depth());
         writeln!(target, "{}{}", indent, task.data())
@@ -121,7 +125,8 @@ impl TestEnv {
     }
 
     fn span(&mut self, name: &str, f: impl FnOnce(&mut Self)) -> TaskId {
-        let id = TaskId::new(self.counter);
+        let prev = self.task;
+        let id = TaskId::new(self.counter.try_into().unwrap());
         self.counter += 1;
         self.writer.update(Action::TaskStart {
             id,
@@ -131,7 +136,7 @@ impl TestEnv {
         self.task = Some(id);
         f(self);
         self.writer.update(Action::TaskEnd { id });
-        self.task = None;
+        self.task = prev;
         id
     }
 

@@ -1,8 +1,9 @@
 use std::collections::VecDeque;
+use std::num::NonZeroUsize;
 
 use indexmap::{IndexMap, IndexSet};
 
-use crate::{Action, Renderer};
+use crate::{Action, BufferStrategy, Renderer};
 
 /// Unique identifier for a task in the tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -17,11 +18,9 @@ impl TaskId {
         self.0 == 0
     }
 
-    /// Creates a new [`TaskId`]. The value must be greater than 0.
-    pub fn new(id: usize) -> Self {
-        #[cfg(debug_assertions)]
-        assert!(id > 0, "Task ID must be greater than 0");
-        Self(id)
+    /// Creates a new [`TaskId`] from a non-zero value.
+    pub fn new(id: NonZeroUsize) -> Self {
+        Self(id.get())
     }
 }
 
@@ -40,7 +39,8 @@ pub struct TaskStore<R: Renderer> {
 }
 
 impl<R: Renderer> Clone for TaskStore<R>
-where Task<R>: Clone
+where
+    Task<R>: Clone,
 {
     fn clone(&self) -> Self {
         Self {
@@ -50,7 +50,8 @@ where Task<R>: Clone
 }
 
 impl<R: Renderer> std::fmt::Debug for TaskStore<R>
-where Task<R>: std::fmt::Debug
+where
+    Task<R>: std::fmt::Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "TaskRegistry {{")?;
@@ -78,10 +79,13 @@ impl<R: Renderer> TaskStore<R> {
     }
 
     pub(crate) fn remove(&mut self, id: TaskId) {
-        if let Some(task) = self.tasks.shift_remove(&id)
-            && let Some(parent) = self.get_task_mut(task.parent)
-        {
-            parent.subtasks.shift_remove(&id);
+        if let Some(task) = self.tasks.shift_remove(&id) {
+            if let Some(parent) = self.get_task_mut(task.parent) {
+                parent.subtasks.shift_remove(&id);
+            }
+            for subtask in task.subtasks {
+                self.remove(subtask);
+            }
         }
     }
 
@@ -91,12 +95,8 @@ impl<R: Renderer> TaskStore<R> {
                 parent,
                 data: event,
             } => {
-                if parent == Some(TaskId::ROOT) {
-                    self.root().events.push_back(event);
-                    return;
-                }
                 if let Some(task) = self.get_task_mut(parent) {
-                    R::push_event(&mut task.events, event);
+                    BufferStrategy::push(&R::event_buffer_strategy(), &mut task.events, event);
                 }
             }
             Action::TaskStart {

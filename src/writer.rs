@@ -62,6 +62,11 @@ impl<'a, R: Renderer> TaskView<'a, R> {
         Self { id, tasks }
     }
 
+    /// Returns TaskId of this task.
+    pub fn id(&self) -> TaskId {
+        self.id
+    }
+
     /// Returns the user-defined data stored on this task.
     pub fn data(&self) -> &R::TaskData {
         self.tasks.task(&self.id).data.as_ref().unwrap()
@@ -86,13 +91,13 @@ impl<'a, R: Renderer> TaskView<'a, R> {
         self.tasks
             .task(&self.id)
             .parent
-            .map(|id| task_view(&self.tasks, id))
+            .map(|id| task_view(self.tasks, id))
     }
 
     /// Returns an iterator over the task's buffered events.
     pub fn events<'b>(&'b self) -> impl Iterator<Item = EventView<'b, R>> {
         (0..self.tasks.task(&self.id).events.len())
-            .map(move |id| event_view(&self.tasks, self.id, id))
+            .map(move |id| event_view(self.tasks, self.id, id))
     }
 
     /// Returns an iterator over the task's direct children.
@@ -101,7 +106,14 @@ impl<'a, R: Renderer> TaskView<'a, R> {
             .task(&self.id)
             .subtasks
             .iter()
-            .map(move |id| task_view(&self.tasks, *id))
+            .map(move |id| task_view(self.tasks, *id))
+    }
+
+    // Returns the index of this task in the parent's subtasks.
+    pub fn index(&self) -> usize {
+        let parent = self.tasks.task(&self.id).parent.unwrap();
+        let parent = self.tasks.task(&parent);
+        parent.subtasks.get_index_of(&self.id).unwrap()
     }
 }
 
@@ -113,7 +125,9 @@ pub struct EventView<'a, R: Renderer> {
 }
 
 fn event_view<'a, R: Renderer>(
-    tasks: &'a TaskStore<R>, task: TaskId, id: usize,
+    tasks: &'a TaskStore<R>,
+    task: TaskId,
+    id: usize,
 ) -> EventView<'a, R> {
     EventView::new(tasks, task, id)
 }
@@ -134,16 +148,21 @@ impl<'a, R: Renderer> EventView<'a, R> {
 
     /// Returns the user-defined data stored on this event.
     pub fn data(&self) -> &R::EventData {
-        let task = self.task();
+        let task = self.get_task();
         task.events().get(self.id.0).unwrap()
     }
 
     /// Returns the nesting depth of the parent task.
     pub fn depth(&self) -> usize {
-        self.task().depth
+        self.get_task().depth
     }
 
-    fn task(&self) -> &Task<R> {
+    /// Returns the TaskView of the parent task.
+    pub fn task<'b>(&'b self) -> TaskView<'b, R> {
+        task_view(self.tasks, self.task)
+    }
+
+    fn get_task(&self) -> &Task<R> {
         self.tasks.task(&self.task)
     }
 }
@@ -156,7 +175,8 @@ pub struct TaskRenderer<R: Renderer> {
 }
 
 impl<R: Renderer> Default for TaskRenderer<R>
-where R: Default
+where
+    R: Default,
 {
     fn default() -> Self {
         Self::new(R::default())
@@ -225,7 +245,7 @@ impl<R: Renderer> TaskRenderer<R> {
         let mut t = FrameWriter::new(target, 0);
         while let Some(task) = queue.pop_front() {
             if self.tasks.task(&task).data.is_some() {
-                let view = task_view(&mut self.tasks, task);
+                let view = task_view(&self.tasks, task);
                 self.r.render_task(&mut t, &view)?;
             }
         }
@@ -241,13 +261,14 @@ impl<R: Renderer> TaskRenderer<R> {
     }
 
     fn flush_root(
-        &mut self, target: &mut FrameWriter<'_>,
+        &mut self,
+        target: &mut FrameWriter<'_>,
     ) -> Result<VecDeque<TaskId>, std::io::Error> {
         let mut active = VecDeque::new();
         let mut completed = VecDeque::new();
 
         for i in 0..self.tasks.task(&TaskId::ROOT).events().len() {
-            let view = event_view(&mut self.tasks, TaskId::ROOT, i);
+            let view = event_view(&self.tasks, TaskId::ROOT, i);
             self.r.render_event_line(target, &view)?;
         }
         self.tasks.root().clear_events();
@@ -260,7 +281,7 @@ impl<R: Renderer> TaskRenderer<R> {
                 .get_index(i)
                 .unwrap();
             if self.tasks.task(&task).completed || self.tasks.task(&task).cancelled {
-                let view = task_view(&mut self.tasks, task);
+                let view = task_view(&self.tasks, task);
                 self.r.render_task(target, &view)?;
                 completed.push_back(task);
             } else {

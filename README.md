@@ -30,7 +30,9 @@ impl Renderer for MyRenderer {
     type TaskData = String;
 
     fn render_task_line(
-        &mut self, frame: &mut FrameWriter<'_>, task: &TaskView<'_, Self>,
+        &mut self,
+        frame: &mut FrameWriter<'_>,
+        task: &TaskView<'_, Self>,
     ) -> std::io::Result<()> {
         if task.completed() {
             return writeln!(frame, "{}✓ {}", " ".repeat(task.depth()), task.data());
@@ -39,7 +41,9 @@ impl Renderer for MyRenderer {
     }
 
     fn render_event_line(
-        &mut self, frame: &mut FrameWriter<'_>, event: &EventView<'_, Self>,
+        &mut self,
+        frame: &mut FrameWriter<'_>,
+        event: &EventView<'_, Self>,
     ) -> std::io::Result<()> {
         writeln!(frame, "{}  -> {}", " ".repeat(event.depth()), event.data())
     }
@@ -139,18 +143,15 @@ fn render_task(
 }
 ```
 
-Override `push_event` to control how events are buffered per task. The default keeps a rolling window of the 3 most recent events:
+Override `event_buffer_strategy` to control how events are retained per task. The default keeps a rolling window of the 3 most recent events:
 
 ```rust,ignore
-fn push_event(
-    events: &mut VecDeque<Self::EventData>, event: Self::EventData,
-) {
-    events.push_back(event);
-    if events.len() > 3 {
-        events.pop_front();
-    }
+fn event_buffer_strategy() -> BufferStrategy {
+    BufferStrategy::Rolling(3) // default
 }
 ```
+
+Available strategies: `Rolling(n)`, `KeepLast`, `KeepAll`, `None`.
 
 ## API
 
@@ -163,3 +164,4 @@ fn push_event(
 | `FrameWriter`            | Terminal writer with ANSI cursor control for frame clearing.                   |
 | `TaskView` / `EventView` | Read-only views passed to renderer callbacks to access underlying data.        |
 | `Action`                 | Enum representing state changes: `TaskStart`, `Event`, `TaskEnd`, `CancelAll`. |
+| `BufferStrategy`         | Controls event retention per task: `Rolling`, `KeepLast`, `KeepAll`, `None`.   |

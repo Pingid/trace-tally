@@ -15,6 +15,8 @@ pub mod prelude {
     pub use crate::writer::{EventView, FrameWriter, TaskRenderer, TaskView};
 }
 
+use std::collections::VecDeque;
+
 pub use crate::prelude::*;
 
 /// Defines how tasks and events are rendered to the terminal.
@@ -40,15 +42,10 @@ pub trait Renderer: Sized {
     /// Called once at the end of each render frame, after all tasks have been visited.
     fn on_render_end(&mut self) {}
 
-    /// Adds a new event to the active task's event buffer.
-    /// The default implementation keeps a rolling window of the 3 most recent events.
-    fn push_event(
-        events: &mut std::collections::VecDeque<Self::EventData>, event: Self::EventData,
-    ) {
-        events.push_back(event);
-        if events.len() > 3 {
-            events.pop_front();
-        }
+    /// Controls how events are buffered per task.
+    /// Override this to change the default rolling window of 3.
+    fn event_buffer_strategy() -> BufferStrategy {
+        BufferStrategy::default()
     }
 
     /// Renders a complete task and its descendants.
@@ -57,7 +54,9 @@ pub trait Renderer: Sized {
     /// event (skipped for completed tasks), then recurses into subtasks.
     #[allow(unused_variables)]
     fn render_task(
-        &mut self, frame: &mut FrameWriter<'_>, task: &TaskView<'_, Self>,
+        &mut self,
+        frame: &mut FrameWriter<'_>,
+        task: &TaskView<'_, Self>,
     ) -> Result<(), std::io::Error> {
         self.render_task_line(frame, task)?;
         if !task.completed() {
@@ -74,7 +73,9 @@ pub trait Renderer: Sized {
     /// Renders the task header on task start.
     #[allow(unused_variables)]
     fn render_task_line(
-        &mut self, frame: &mut FrameWriter<'_>, task: &TaskView<'_, Self>,
+        &mut self,
+        frame: &mut FrameWriter<'_>,
+        task: &TaskView<'_, Self>,
     ) -> Result<(), std::io::Error> {
         Ok(())
     }
@@ -82,7 +83,9 @@ pub trait Renderer: Sized {
     /// Renders a single buffered event within a task.
     #[allow(unused_variables)]
     fn render_event_line(
-        &mut self, frame: &mut FrameWriter<'_>, event: &EventView<'_, Self>,
+        &mut self,
+        frame: &mut FrameWriter<'_>,
+        event: &EventView<'_, Self>,
     ) -> Result<(), std::io::Error> {
         Ok(())
     }
@@ -106,4 +109,45 @@ pub enum Action<R: Renderer> {
     TaskEnd { id: TaskId },
     /// Mark all pending tasks as cancelled.
     CancelAll,
+}
+
+/// Controls how events are retained in a task's event buffer.
+#[derive(Debug, Clone)]
+pub enum BufferStrategy {
+    /// Keep only the most recent `n` events (sliding window).
+    Rolling(usize),
+    /// Keep only the single most recent event.
+    KeepLast,
+    /// Keep all events (unbounded).
+    KeepAll,
+    /// Don't buffer events at all.
+    None,
+}
+
+impl Default for BufferStrategy {
+    fn default() -> Self {
+        Self::Rolling(3)
+    }
+}
+
+impl BufferStrategy {
+    /// Push an event into the buffer, enforcing the retention policy.
+    pub(crate) fn push<T>(&self, buffer: &mut VecDeque<T>, event: T) {
+        match self {
+            Self::None => {}
+            Self::KeepLast => {
+                buffer.clear();
+                buffer.push_back(event);
+            }
+            Self::KeepAll => {
+                buffer.push_back(event);
+            }
+            Self::Rolling(max) => {
+                buffer.push_back(event);
+                while buffer.len() > *max {
+                    buffer.pop_front();
+                }
+            }
+        }
+    }
 }

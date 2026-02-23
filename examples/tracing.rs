@@ -22,7 +22,9 @@ impl Renderer for TestRenderer {
     }
 
     fn render_task(
-        &mut self, target: &mut FrameWriter<'_>, task: &TaskView<'_, Self>,
+        &mut self,
+        target: &mut FrameWriter<'_>,
+        task: &TaskView<'_, Self>,
     ) -> Result<(), std::io::Error> {
         self.render_task_line(target, task)?;
         if !task.completed() {
@@ -37,7 +39,9 @@ impl Renderer for TestRenderer {
     }
 
     fn render_task_line(
-        &mut self, target: &mut FrameWriter<'_>, task: &TaskView<'_, Self>,
+        &mut self,
+        target: &mut FrameWriter<'_>,
+        task: &TaskView<'_, Self>,
     ) -> Result<(), std::io::Error> {
         let indent = " ".repeat(task.depth());
         if task.completed() {
@@ -48,7 +52,9 @@ impl Renderer for TestRenderer {
     }
 
     fn render_event_line(
-        &mut self, target: &mut FrameWriter<'_>, event: &EventView<'_, Self>,
+        &mut self,
+        target: &mut FrameWriter<'_>,
+        event: &EventView<'_, Self>,
     ) -> Result<(), std::io::Error> {
         if event.is_root() {
             writeln!(target, "{}", event.data())
@@ -93,7 +99,7 @@ fn main() {
     let (tx, rx) = mpsc::channel();
 
     let layer = TestTraceMapper::task_layer(tx.clone());
-    tracing_subscriber::registry().with(layer.clone()).init();
+    tracing_subscriber::registry().with(layer).init();
 
     let stop = Arc::new(AtomicBool::new(false));
     let stop_signal = stop.clone();
