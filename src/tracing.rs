@@ -54,7 +54,7 @@ impl IdProvider {
         let mut map = self.mapping.lock().unwrap();
         *map.entry(id.clone()).or_insert_with(|| {
             let generation = self.generation.fetch_add(1, Ordering::Relaxed);
-            TaskId::new(generation)
+            TaskId::new(generation + 1)
         })
     }
 

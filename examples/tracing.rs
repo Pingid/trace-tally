@@ -21,12 +21,15 @@ impl Renderer for TestRenderer {
         self.tick = (self.tick + 1) % SPINNER_FRAMES.len();
     }
 
-    fn render_task_start(
-        &mut self, target: &mut Target<'_>, span: TaskView<'_, Self>,
+    fn render_task(
+        &mut self, target: &mut Target<'_>, task: TaskView<'_, Self>,
     ) -> Result<(), std::io::Error> {
-        let indent = " ".repeat(span.depth());
+        let indent = " ".repeat(task.depth());
+        if task.completed() {
+            return writeln!(target, "{}✓ {}", indent, task.data());
+        }
         let frame = SPINNER_FRAMES[self.tick % SPINNER_FRAMES.len()];
-        writeln!(target, "{} {} {}", indent, frame, span.data())
+        writeln!(target, "{} {} {}", indent, frame, task.data())
     }
 
     fn render_event(
@@ -38,13 +41,6 @@ impl Renderer for TestRenderer {
             let indent = " ".repeat(event.depth());
             writeln!(target, "{}   -> {}", indent, event.data())
         }
-    }
-
-    fn render_task_end(
-        &mut self, target: &mut Target<'_>, span: TaskView<'_, Self>,
-    ) -> Result<(), std::io::Error> {
-        let indent = " ".repeat(span.depth());
-        writeln!(target, "{}✓ {}", indent, span.data())
     }
 }
 
@@ -93,7 +89,7 @@ fn main() {
             }
             writer.render(&mut std::io::stderr()).unwrap();
             if stop_signal.load(Ordering::Relaxed) {
-                writer.update(Action::Finnish);
+                writer.update(Action::Cancel);
                 writer.render(&mut std::io::stderr()).unwrap();
                 break;
             }

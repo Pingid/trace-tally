@@ -112,15 +112,15 @@ impl<R: Renderer> TaskRegistry<R> {
             }
             Action::TaskEnd { id } => {
                 if let Some(task) = self.resolve_task(Some(id)) {
-                    task.complete_task();
+                    task.completed = true;
                 }
             }
-            Action::Finnish => {
+            Action::Cancel => {
                 let subtasks = self.root().subtasks.len();
                 for i in 0..subtasks {
                     let id = *self.root().subtasks.get_index(i).unwrap();
                     let task = self.tasks.get_mut(&id).unwrap();
-                    task.complete_task();
+                    task.cancelled = true;
                 }
             }
         }
@@ -138,6 +138,7 @@ impl<R: Renderer> TaskRegistry<R> {
 pub struct Task<R: Renderer> {
     pub(crate) depth: usize,
     pub(crate) completed: bool,
+    pub(crate) cancelled: bool,
     pub(crate) parent: Option<TaskId>,
     pub(crate) data: Option<R::TaskData>,
     pub(crate) events: VecDeque<R::EventData>,
@@ -168,6 +169,7 @@ impl<R: Renderer> Task<R> {
             depth,
             parent,
             completed: false,
+            cancelled: false,
             events: VecDeque::new(),
             subtasks: IndexSet::new(),
         }
@@ -183,9 +185,5 @@ impl<R: Renderer> Task<R> {
 
     pub(crate) fn subtasks(&self) -> &IndexSet<TaskId> {
         &self.subtasks
-    }
-
-    pub(crate) fn complete_task(&mut self) {
-        self.completed = true;
     }
 }

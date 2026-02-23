@@ -20,11 +20,11 @@ pub use crate::prelude::*;
 ///
 /// Implement this trait to control the visual output of the task tree.
 /// Each frame, the writer walks the task hierarchy and calls the render
-/// methods in order: [`render_task_start`], [`render_event`] for each
+/// methods in order: [`render_task`], [`render_event`] for each
 /// buffered event, then [`render_task_end`], recursing into child tasks
 /// between events and the end call.
 ///
-/// [`render_task_start`]: Renderer::render_task_start
+/// [`render_task`]: Renderer::render_task
 /// [`render_event`]: Renderer::render_event
 /// [`render_task_end`]: Renderer::render_task_end
 pub trait Renderer: Sized {
@@ -50,9 +50,9 @@ pub trait Renderer: Sized {
         }
     }
 
-    /// Renders the opening of a task (before its events and children).
+    /// Renders the task header on task start.
     #[allow(unused_variables)]
-    fn render_task_start(
+    fn render_task(
         &mut self, target: &mut Target<'_>, task: TaskView<'_, Self>,
     ) -> Result<(), std::io::Error> {
         Ok(())
@@ -62,14 +62,6 @@ pub trait Renderer: Sized {
     #[allow(unused_variables)]
     fn render_event(
         &mut self, target: &mut Target<'_>, event: EventView<'_, Self>,
-    ) -> Result<(), std::io::Error> {
-        Ok(())
-    }
-
-    /// Renders the closing of a task (after its events and children).
-    #[allow(unused_variables)]
-    fn render_task_end(
-        &mut self, target: &mut Target<'_>, task: TaskView<'_, Self>,
     ) -> Result<(), std::io::Error> {
         Ok(())
     }
@@ -89,5 +81,5 @@ pub enum Action<R: Renderer> {
     TaskEnd {
         id: TaskId,
     },
-    Finnish,
+    Cancel,
 }

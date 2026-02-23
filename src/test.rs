@@ -81,7 +81,7 @@ impl Renderer for TestRenderer {
     type EventData = String;
     type TaskData = String;
 
-    fn render_task_start(
+    fn render_task(
         &mut self, target: &mut crate::Target<'_>, task: crate::TaskView<'_, Self>,
     ) -> Result<(), std::io::Error> {
         let indent = " ".repeat(task.depth());
@@ -90,13 +90,6 @@ impl Renderer for TestRenderer {
 
     fn render_event(
         &mut self, target: &mut crate::Target<'_>, task: crate::EventView<'_, Self>,
-    ) -> Result<(), std::io::Error> {
-        let indent = " ".repeat(task.depth());
-        writeln!(target, "{}{}", indent, task.data())
-    }
-
-    fn render_task_end(
-        &mut self, target: &mut crate::Target<'_>, task: crate::TaskView<'_, Self>,
     ) -> Result<(), std::io::Error> {
         let indent = " ".repeat(task.depth());
         writeln!(target, "{}{}", indent, task.data())

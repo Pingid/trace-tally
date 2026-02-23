@@ -29,9 +29,12 @@ impl Renderer for MyRenderer {
     type EventData = String;
     type TaskData = String;
 
-    fn render_task_start(
+    fn render_task(
         &mut self, target: &mut Target<'_>, task: TaskView<'_, Self>,
     ) -> std::io::Result<()> {
+        if task.completed() {
+            return writeln!(target, "{}✓ {}", " ".repeat(task.depth()), task.data());
+        }
         writeln!(target, "{} {}", " ".repeat(task.depth()), task.data())
     }
 
@@ -39,12 +42,6 @@ impl Renderer for MyRenderer {
         &mut self, target: &mut Target<'_>, event: EventView<'_, Self>,
     ) -> std::io::Result<()> {
         writeln!(target, "{}  -> {}", " ".repeat(event.depth()), event.data())
-    }
-
-    fn render_task_end(
-        &mut self, target: &mut Target<'_>, task: TaskView<'_, Self>,
-    ) -> std::io::Result<()> {
-        writeln!(target, "{}done: {}", " ".repeat(task.depth()), task.data())
     }
 }
 
@@ -99,7 +96,8 @@ fn main() {
                 writer.update(action);
             }
             if stop_signal.load(Ordering::Relaxed) {
-                writer.update(Action::Finnish);
+                // Cancel any pending tasks
+                writer.update(Action::Cancel);
                 writer.render(&mut std::io::stderr()).unwrap();
                 break;
             }

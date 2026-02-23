@@ -67,6 +67,14 @@ impl<'a, R: Renderer> TaskView<'a, R> {
     pub fn depth(&self) -> usize {
         self.tasks.task(&self.id).depth
     }
+
+    pub fn completed(&self) -> bool {
+        self.tasks.task(&self.id).completed
+    }
+
+    pub fn cancelled(&self) -> bool {
+        self.tasks.task(&self.id).cancelled
+    }
 }
 
 pub struct EventView<'a, R: Renderer> {
@@ -187,6 +195,8 @@ impl<R: Renderer> TaskRenderer<R> {
 
         t.flush()?;
 
+        self.r.on_render_end();
+
         Ok(())
     }
 
@@ -198,14 +208,14 @@ impl<R: Renderer> TaskRenderer<R> {
 
         if self.tasks.task(task).data.is_some() {
             let view = task_view(&mut self.tasks, *task);
-            self.r.render_task_start(target, view)?;
+            self.r.render_task(target, view)?;
         }
 
         for i in 0..self.tasks.task(task).subtasks().len() {
             let task_id = *self.tasks.task(task).subtasks().get_index(i).unwrap();
-            if self.tasks.task(&task_id).completed {
+            if self.tasks.task(&task_id).completed || self.tasks.task(&task_id).cancelled {
                 let view = task_view(&mut self.tasks, task_id);
-                self.r.render_task_end(target, view)?;
+                self.r.render_task(target, view)?;
                 completed.push_back(task_id);
                 continue;
             } else {
