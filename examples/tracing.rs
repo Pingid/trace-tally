@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
 
 use trace_tally::{
-    Action, EventMapper, EventView, Renderer, Target, TaskRenderer, TaskTraceLayer, TaskView,
+    Action, EventView, FrameWriter, Renderer, TaskRenderer, TaskTraceLayer, TaskView, TraceMapper,
 };
 
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -22,7 +22,22 @@ impl Renderer for TestRenderer {
     }
 
     fn render_task(
-        &mut self, target: &mut Target<'_>, task: TaskView<'_, Self>,
+        &mut self, target: &mut FrameWriter<'_>, task: &TaskView<'_, Self>,
+    ) -> Result<(), std::io::Error> {
+        self.render_task_line(target, task)?;
+        if !task.completed() {
+            for event in task.events() {
+                self.render_event_line(target, &event)?;
+            }
+        }
+        for subtask in task.subtasks() {
+            self.render_task_line(target, &subtask)?;
+        }
+        Ok(())
+    }
+
+    fn render_task_line(
+        &mut self, target: &mut FrameWriter<'_>, task: &TaskView<'_, Self>,
     ) -> Result<(), std::io::Error> {
         let indent = " ".repeat(task.depth());
         if task.completed() {
@@ -32,8 +47,8 @@ impl Renderer for TestRenderer {
         writeln!(target, "{} {} {}", indent, frame, task.data())
     }
 
-    fn render_event(
-        &mut self, target: &mut Target<'_>, event: EventView<'_, Self>,
+    fn render_event_line(
+        &mut self, target: &mut FrameWriter<'_>, event: &EventView<'_, Self>,
     ) -> Result<(), std::io::Error> {
         if event.is_root() {
             writeln!(target, "{}", event.data())
@@ -44,16 +59,19 @@ impl Renderer for TestRenderer {
     }
 }
 
-struct TestEventMapper;
+struct TestTraceMapper;
 
-impl EventMapper<TestRenderer> for TestEventMapper {
+impl TraceMapper<TestRenderer> for TestTraceMapper {
     fn map_event(event: &tracing::Event<'_>) -> String {
         let mut message = String::new();
         event.record(&mut MessageVisitor(&mut message));
         message
     }
     fn map_span(attrs: &tracing::span::Attributes<'_>) -> String {
-        attrs.metadata().name().to_string()
+        let mut message = String::new();
+        attrs.record(&mut MessageVisitor(&mut message));
+        let name = attrs.metadata().name().to_string();
+        format!("{name}: {message}")
     }
 }
 
@@ -74,7 +92,7 @@ fn main() {
 
     let (tx, rx) = mpsc::channel();
 
-    let layer = TestEventMapper::task_layer(tx.clone());
+    let layer = TestTraceMapper::task_layer(tx.clone());
     tracing_subscriber::registry().with(layer.clone()).init();
 
     let stop = Arc::new(AtomicBool::new(false));
@@ -89,7 +107,7 @@ fn main() {
             }
             writer.render(&mut std::io::stderr()).unwrap();
             if stop_signal.load(Ordering::Relaxed) {
-                writer.update(Action::Cancel);
+                writer.update(Action::CancelAll);
                 writer.render(&mut std::io::stderr()).unwrap();
                 break;
             }
@@ -146,7 +164,7 @@ fn main() {
             sleep(600);
             root_span.in_scope(|| info!("preparing {env} rollout"));
 
-            let child_span = info_span!(parent: &root_span, "deploy:{env}");
+            let child_span = info_span!(parent: &root_span, "deploy", message = format!("{env}"));
             let steps = [
                 "running preflight checks",
                 "draining existing connections",

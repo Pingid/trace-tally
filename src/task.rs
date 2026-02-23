@@ -4,6 +4,7 @@ use indexmap::{IndexMap, IndexSet};
 
 use crate::{Action, Renderer};
 
+/// Unique identifier for a task in the tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TaskId(usize);
 
@@ -16,6 +17,7 @@ impl TaskId {
         self.0 == 0
     }
 
+    /// Creates a new [`TaskId`]. The value must be greater than 0.
     pub fn new(id: usize) -> Self {
         #[cfg(debug_assertions)]
         assert!(id > 0, "Task ID must be greater than 0");
@@ -23,20 +25,21 @@ impl TaskId {
     }
 }
 
+/// Index reference to an event within a task's event buffer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct EventRef(pub(crate) usize);
+pub(crate) struct EventIndex(pub(crate) usize);
 
-impl From<usize> for EventRef {
+impl From<usize> for EventIndex {
     fn from(id: usize) -> Self {
         Self(id)
     }
 }
 
-pub struct TaskRegistry<R: Renderer> {
+pub struct TaskStore<R: Renderer> {
     pub(crate) tasks: IndexMap<TaskId, Task<R>>,
 }
 
-impl<R: Renderer> Clone for TaskRegistry<R>
+impl<R: Renderer> Clone for TaskStore<R>
 where Task<R>: Clone
 {
     fn clone(&self) -> Self {
@@ -46,7 +49,7 @@ where Task<R>: Clone
     }
 }
 
-impl<R: Renderer> std::fmt::Debug for TaskRegistry<R>
+impl<R: Renderer> std::fmt::Debug for TaskStore<R>
 where Task<R>: std::fmt::Debug
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -58,7 +61,7 @@ where Task<R>: std::fmt::Debug
     }
 }
 
-impl<R: Renderer> TaskRegistry<R> {
+impl<R: Renderer> TaskStore<R> {
     pub(crate) fn new() -> Self {
         let mut tasks = IndexMap::new();
         let task = Task::new(0, None, None);
@@ -76,24 +79,31 @@ impl<R: Renderer> TaskRegistry<R> {
 
     pub(crate) fn remove(&mut self, id: TaskId) {
         if let Some(task) = self.tasks.shift_remove(&id)
-            && let Some(parent) = self.resolve_task(task.parent)
+            && let Some(parent) = self.get_task_mut(task.parent)
         {
             parent.subtasks.shift_remove(&id);
         }
     }
 
-    pub(crate) fn apply_action(&mut self, action: Action<R>) {
+    pub(crate) fn apply(&mut self, action: Action<R>) {
         match action {
-            Action::Event { parent, event } => {
+            Action::Event {
+                parent,
+                data: event,
+            } => {
                 if parent == Some(TaskId::ROOT) {
                     self.root().events.push_back(event);
                     return;
                 }
-                if let Some(task) = self.resolve_task(parent) {
-                    R::buffer_event(&mut task.events, event);
+                if let Some(task) = self.get_task_mut(parent) {
+                    R::push_event(&mut task.events, event);
                 }
             }
-            Action::TaskStart { id, parent, event } => {
+            Action::TaskStart {
+                id,
+                parent,
+                data: event,
+            } => {
                 let parent_id = parent
                     .and_then(|id| match self.tasks.contains_key(&id) {
                         true => Some(id),
@@ -111,22 +121,27 @@ impl<R: Renderer> TaskRegistry<R> {
                 p_task.subtasks.insert(id);
             }
             Action::TaskEnd { id } => {
-                if let Some(task) = self.resolve_task(Some(id)) {
+                if let Some(task) = self.get_task_mut(Some(id)) {
                     task.completed = true;
                 }
             }
-            Action::Cancel => {
-                let subtasks = self.root().subtasks.len();
-                for i in 0..subtasks {
-                    let id = *self.root().subtasks.get_index(i).unwrap();
+            Action::CancelAll => {
+                let mut queue = self
+                    .root()
+                    .subtasks
+                    .iter()
+                    .copied()
+                    .collect::<VecDeque<_>>();
+                while let Some(id) = queue.pop_front() {
                     let task = self.tasks.get_mut(&id).unwrap();
                     task.cancelled = true;
+                    queue.extend(task.subtasks.iter());
                 }
             }
         }
     }
 
-    fn resolve_task<I: Into<TaskId>>(&mut self, id: Option<I>) -> Option<&mut Task<R>> {
+    fn get_task_mut<I: Into<TaskId>>(&mut self, id: Option<I>) -> Option<&mut Task<R>> {
         match id {
             Some(id) => self.tasks.get_mut(&id.into()),
             None => self.tasks.get_mut(&TaskId::ROOT),

@@ -81,15 +81,15 @@ impl Renderer for TestRenderer {
     type EventData = String;
     type TaskData = String;
 
-    fn render_task(
-        &mut self, target: &mut crate::Target<'_>, task: crate::TaskView<'_, Self>,
+    fn render_task_line(
+        &mut self, target: &mut crate::FrameWriter<'_>, task: &crate::TaskView<'_, Self>,
     ) -> Result<(), std::io::Error> {
         let indent = " ".repeat(task.depth());
         writeln!(target, "{}{}", indent, task.data())
     }
 
-    fn render_event(
-        &mut self, target: &mut crate::Target<'_>, task: crate::EventView<'_, Self>,
+    fn render_event_line(
+        &mut self, target: &mut crate::FrameWriter<'_>, task: &crate::EventView<'_, Self>,
     ) -> Result<(), std::io::Error> {
         let indent = " ".repeat(task.depth());
         writeln!(target, "{}{}", indent, task.data())
@@ -116,7 +116,7 @@ impl TestEnv {
     fn event(&mut self, message: &str) {
         self.writer.update(Action::Event {
             parent: self.task,
-            event: message.to_string(),
+            data: message.to_string(),
         });
     }
 
@@ -126,7 +126,7 @@ impl TestEnv {
         self.writer.update(Action::TaskStart {
             id,
             parent: self.task,
-            event: name.to_string(),
+            data: name.to_string(),
         });
         self.task = Some(id);
         f(self);

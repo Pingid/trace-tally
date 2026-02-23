@@ -7,11 +7,12 @@ pub(crate) mod writer;
 #[cfg(test)]
 mod test;
 
+/// Re-exports of all public types and traits.
 pub mod prelude {
     pub use crate::Renderer;
-    pub use crate::task::{EventRef, TaskId};
-    pub use crate::tracing::{ActionSender, EventMapper, TaskLayer, TaskTraceLayer, task_layer};
-    pub use crate::writer::{EventView, Target, TaskRenderer, TaskView};
+    pub use crate::task::TaskId;
+    pub use crate::tracing::{ActionTransport, TaskLayer, TaskTraceLayer, TraceMapper, task_layer};
+    pub use crate::writer::{EventView, FrameWriter, TaskRenderer, TaskView};
 }
 
 pub use crate::prelude::*;
@@ -20,13 +21,13 @@ pub use crate::prelude::*;
 ///
 /// Implement this trait to control the visual output of the task tree.
 /// Each frame, the writer walks the task hierarchy and calls the render
-/// methods in order: [`render_task`], [`render_event`] for each
-/// buffered event, then [`render_task_end`], recursing into child tasks
-/// between events and the end call.
+/// methods in order: [`render_task_line`], [`render_event_line`] for each
+/// buffered event, then recurses into child tasks. Override [`render_task`]
+/// to change this traversal.
 ///
 /// [`render_task`]: Renderer::render_task
-/// [`render_event`]: Renderer::render_event
-/// [`render_task_end`]: Renderer::render_task_end
+/// [`render_task_line`]: Renderer::render_task_line
+/// [`render_event_line`]: Renderer::render_event_line
 pub trait Renderer: Sized {
     /// Data stored per event (e.g. a log message or span field snapshot).
     type EventData: Send + 'static;
@@ -39,9 +40,9 @@ pub trait Renderer: Sized {
     /// Called once at the end of each render frame, after all tasks have been visited.
     fn on_render_end(&mut self) {}
 
-    /// Adds a new event to the task's event buffer.
+    /// Adds a new event to the active task's event buffer.
     /// The default implementation keeps a rolling window of the 3 most recent events.
-    fn buffer_event(
+    fn push_event(
         events: &mut std::collections::VecDeque<Self::EventData>, event: Self::EventData,
     ) {
         events.push_back(event);
@@ -50,36 +51,59 @@ pub trait Renderer: Sized {
         }
     }
 
-    /// Renders the task header on task start.
+    /// Renders a complete task and its descendants.
+    ///
+    /// The default implementation renders the task line, then each buffered
+    /// event (skipped for completed tasks), then recurses into subtasks.
     #[allow(unused_variables)]
     fn render_task(
-        &mut self, target: &mut Target<'_>, task: TaskView<'_, Self>,
+        &mut self, frame: &mut FrameWriter<'_>, task: &TaskView<'_, Self>,
+    ) -> Result<(), std::io::Error> {
+        self.render_task_line(frame, task)?;
+        if !task.completed() {
+            for event in task.events() {
+                self.render_event_line(frame, &event)?;
+            }
+        }
+        for subtask in task.subtasks() {
+            self.render_task(frame, &subtask)?;
+        }
+        Ok(())
+    }
+
+    /// Renders the task header on task start.
+    #[allow(unused_variables)]
+    fn render_task_line(
+        &mut self, frame: &mut FrameWriter<'_>, task: &TaskView<'_, Self>,
     ) -> Result<(), std::io::Error> {
         Ok(())
     }
 
     /// Renders a single buffered event within a task.
     #[allow(unused_variables)]
-    fn render_event(
-        &mut self, target: &mut Target<'_>, event: EventView<'_, Self>,
+    fn render_event_line(
+        &mut self, frame: &mut FrameWriter<'_>, event: &EventView<'_, Self>,
     ) -> Result<(), std::io::Error> {
         Ok(())
     }
 }
 
+/// A state change in the task tree.
 #[derive(Debug, Clone)]
 pub enum Action<R: Renderer> {
+    /// A new event on an existing task (or the root if `parent` is `None`).
     Event {
         parent: Option<TaskId>,
-        event: R::EventData,
+        data: R::EventData,
     },
+    /// A new task has started.
     TaskStart {
         id: TaskId,
         parent: Option<TaskId>,
-        event: R::TaskData,
+        data: R::TaskData,
     },
-    TaskEnd {
-        id: TaskId,
-    },
-    Cancel,
+    /// A task has completed.
+    TaskEnd { id: TaskId },
+    /// Mark all pending tasks as cancelled.
+    CancelAll,
 }

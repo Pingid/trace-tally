@@ -3,7 +3,7 @@
 [![Crates.io](https://img.shields.io/crates/v/trace-tally.svg)](https://crates.io/crates/trace-tally)
 [![Docs.rs](https://docs.rs/trace-tally/badge.svg)](https://docs.rs/trace-tally)
 
-A [`tracing`](https://docs.rs/tracing) layer for rendering hierarchical task tree's to the terminal.
+A [`tracing`](https://docs.rs/tracing) layer for rendering hierarchical task trees to the terminal.
 
 ![Trace Tally Demo](assets/demo.gif)
 
@@ -11,7 +11,7 @@ A [`tracing`](https://docs.rs/tracing) layer for rendering hierarchical task tre
 
 Using trace-tally requires implementing two traits to control how your data is processed and displayed:
 
-1. `EventMapper`: Extracts the relevant data from `tracing` spans and events.
+1. `TraceMapper`: Extracts the relevant data from `tracing` spans and events.
 2. `Renderer`: Dictates exactly how that extracted data is formatted and printed to the terminal.
 
 ### Complete Example
@@ -29,25 +29,25 @@ impl Renderer for MyRenderer {
     type EventData = String;
     type TaskData = String;
 
-    fn render_task(
-        &mut self, target: &mut Target<'_>, task: TaskView<'_, Self>,
+    fn render_task_line(
+        &mut self, frame: &mut FrameWriter<'_>, task: &TaskView<'_, Self>,
     ) -> std::io::Result<()> {
         if task.completed() {
-            return writeln!(target, "{}✓ {}", " ".repeat(task.depth()), task.data());
+            return writeln!(frame, "{}✓ {}", " ".repeat(task.depth()), task.data());
         }
-        writeln!(target, "{} {}", " ".repeat(task.depth()), task.data())
+        writeln!(frame, "{} {}", " ".repeat(task.depth()), task.data())
     }
 
-    fn render_event(
-        &mut self, target: &mut Target<'_>, event: EventView<'_, Self>,
+    fn render_event_line(
+        &mut self, frame: &mut FrameWriter<'_>, event: &EventView<'_, Self>,
     ) -> std::io::Result<()> {
-        writeln!(target, "{}  -> {}", " ".repeat(event.depth()), event.data())
+        writeln!(frame, "{}  -> {}", " ".repeat(event.depth()), event.data())
     }
 }
 
 // Define how to extract data from tracing primitives
 struct MyMapper;
-impl EventMapper<MyRenderer> for MyMapper {
+impl TraceMapper<MyRenderer> for MyMapper {
     fn map_event(event: &tracing::Event<'_>) -> String {
         let mut message = String::new();
         event.record(&mut MessageVisitor(&mut message));
@@ -97,7 +97,7 @@ fn main() {
             }
             if stop_signal.load(Ordering::Relaxed) {
                 // Cancel any pending tasks
-                writer.update(Action::Cancel);
+                writer.update(Action::CancelAll);
                 writer.render(&mut std::io::stderr()).unwrap();
                 break;
             }
@@ -118,14 +118,48 @@ fn main() {
 }
 ```
 
+## Customizing Rendering
+
+Override `render_task` to change how the task tree is walked. The default renders the task line, then buffered events (skipped for completed tasks), then recurses into subtasks:
+
+```rust,ignore
+fn render_task(
+    &mut self, frame: &mut FrameWriter<'_>, task: &TaskView<'_, Self>,
+) -> Result<(), std::io::Error> {
+    self.render_task_line(frame, task)?;
+    if !task.completed() {
+        for event in task.events() {
+            self.render_event_line(frame, &event)?;
+        }
+    }
+    for subtask in task.subtasks() {
+        self.render_task(frame, &subtask)?;
+    }
+    Ok(())
+}
+```
+
+Override `push_event` to control how events are buffered per task. The default keeps a rolling window of the 3 most recent events:
+
+```rust,ignore
+fn push_event(
+    events: &mut VecDeque<Self::EventData>, event: Self::EventData,
+) {
+    events.push_back(event);
+    if events.len() > 3 {
+        events.pop_front();
+    }
+}
+```
+
 ## API
 
-| Type                     | Role                                                                        |
-| ------------------------ | --------------------------------------------------------------------------- |
-| `Renderer`               | Trait — define `TaskData`/`EventData` types and rendering callbacks.        |
-| `EventMapper`            | Trait — extract custom data from tracing spans and events.                  |
-| `TaskRenderer`           | Receives `Action`s, manages the task tree state, and drives rendering.      |
-| `TaskLayer`              | The tracing `Layer` that captures spans/events and sends actions.           |
-| `Target`                 | Terminal writer with ANSI cursor control for frame clearing.                |
-| `TaskView` / `EventView` | Read-only views passed to renderer callbacks to access underlying data.     |
-| `Action`                 | Enum representing state changes: `TaskStart`, `Event`, `TaskEnd`, `Finnish` |
+| Type                     | Role                                                                           |
+| ------------------------ | ------------------------------------------------------------------------------ |
+| `Renderer`               | Trait — define `TaskData`/`EventData` types and rendering callbacks.           |
+| `TraceMapper`            | Trait — extract custom data from tracing spans and events.                     |
+| `TaskRenderer`           | Receives `Action`s, manages the task tree state, and drives rendering.         |
+| `TaskLayer`              | The tracing `Layer` that captures spans/events and sends actions.              |
+| `FrameWriter`            | Terminal writer with ANSI cursor control for frame clearing.                   |
+| `TaskView` / `EventView` | Read-only views passed to renderer callbacks to access underlying data.        |
+| `Action`                 | Enum representing state changes: `TaskStart`, `Event`, `TaskEnd`, `CancelAll`. |
