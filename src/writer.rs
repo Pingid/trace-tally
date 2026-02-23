@@ -95,13 +95,17 @@ impl<'a, R: Renderer> TaskView<'a, R> {
     }
 
     /// Returns an iterator over the task's buffered events.
-    pub fn events<'b>(&'b self) -> impl Iterator<Item = EventView<'b, R>> {
+    pub fn events<'b>(
+        &'b self,
+    ) -> impl DoubleEndedIterator<Item = EventView<'b, R>> + ExactSizeIterator {
         (0..self.tasks.task(&self.id).events.len())
             .map(move |id| event_view(self.tasks, self.id, id))
     }
 
     /// Returns an iterator over the task's direct children.
-    pub fn subtasks<'b>(&'b self) -> impl Iterator<Item = TaskView<'b, R>> {
+    pub fn subtasks<'b>(
+        &'b self,
+    ) -> impl DoubleEndedIterator<Item = TaskView<'b, R>> + ExactSizeIterator {
         self.tasks
             .task(&self.id)
             .subtasks
