@@ -198,14 +198,14 @@ impl<R: Renderer> TaskRenderer<R> {
 
         if self.tasks.task(task).data.is_some() {
             let view = task_view(&mut self.tasks, *task);
-            self.r.task_start(target, view)?;
+            self.r.render_task_start(target, view)?;
         }
 
         for i in 0..self.tasks.task(task).subtasks().len() {
             let task_id = *self.tasks.task(task).subtasks().get_index(i).unwrap();
             if self.tasks.task(&task_id).completed {
                 let view = task_view(&mut self.tasks, task_id);
-                self.r.task_end(target, view)?;
+                self.r.render_task_end(target, view)?;
                 completed.push_back(task_id);
                 continue;
             } else {
@@ -215,7 +215,7 @@ impl<R: Renderer> TaskRenderer<R> {
 
         for event in 0..self.tasks.task(task).events().len() {
             let view = event_view(&mut self.tasks, *task, event);
-            self.r.event(target, view)?;
+            self.r.render_event(target, view)?;
         }
 
         Ok((active, completed))

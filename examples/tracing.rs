@@ -21,7 +21,7 @@ impl Renderer for TestRenderer {
         self.tick = (self.tick + 1) % SPINNER_FRAMES.len();
     }
 
-    fn task_start(
+    fn render_task_start(
         &mut self, target: &mut Target<'_>, span: TaskView<'_, Self>,
     ) -> Result<(), std::io::Error> {
         let indent = " ".repeat(span.depth());
@@ -29,7 +29,7 @@ impl Renderer for TestRenderer {
         writeln!(target, "{} {} {}", indent, frame, span.data())
     }
 
-    fn event(
+    fn render_event(
         &mut self, target: &mut Target<'_>, event: EventView<'_, Self>,
     ) -> Result<(), std::io::Error> {
         if event.is_root() {
@@ -40,7 +40,7 @@ impl Renderer for TestRenderer {
         }
     }
 
-    fn task_end(
+    fn render_task_end(
         &mut self, target: &mut Target<'_>, span: TaskView<'_, Self>,
     ) -> Result<(), std::io::Error> {
         let indent = " ".repeat(span.depth());

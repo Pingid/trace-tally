@@ -100,10 +100,7 @@ impl<R: Renderer> TaskRegistry<R> {
                     return;
                 }
                 if let Some(task) = self.resolve_task(parent) {
-                    task.events.push_back(event);
-                    if task.events.len() > 3 {
-                        task.events.pop_front();
-                    }
+                    R::buffer_event(&mut task.events, event);
                 }
             }
             Action::TaskStart { id, parent, event } => {

@@ -29,19 +29,19 @@ impl Renderer for MyRenderer {
     type EventData = String;
     type TaskData = String;
 
-    fn task_start(
+    fn render_task_start(
         &mut self, target: &mut Target<'_>, task: TaskView<'_, Self>,
     ) -> std::io::Result<()> {
         writeln!(target, "{} {}", " ".repeat(task.depth()), task.data())
     }
 
-    fn event(
+    fn render_event(
         &mut self, target: &mut Target<'_>, event: EventView<'_, Self>,
     ) -> std::io::Result<()> {
         writeln!(target, "{}  -> {}", " ".repeat(event.depth()), event.data())
     }
 
-    fn task_end(
+    fn render_task_end(
         &mut self, target: &mut Target<'_>, task: TaskView<'_, Self>,
     ) -> std::io::Result<()> {
         writeln!(target, "{}done: {}", " ".repeat(task.depth()), task.data())
