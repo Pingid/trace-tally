@@ -89,14 +89,14 @@ impl<R: Renderer> TaskStore<R> {
         }
     }
 
-    pub(crate) fn apply(&mut self, action: Action<R>) {
+    pub(crate) fn apply(&mut self, action: Action<R>, buffer_strategy: BufferStrategy) {
         match action {
             Action::Event {
                 parent,
                 data: event,
             } => {
                 if let Some(task) = self.get_task_mut(parent) {
-                    BufferStrategy::push(&R::event_buffer_strategy(), &mut task.events, event);
+                    BufferStrategy::push(&buffer_strategy, &mut task.events, event);
                 }
             }
             Action::TaskStart {

@@ -224,7 +224,7 @@ impl<R: Renderer> TaskRenderer<R> {
 
     /// Applies a single [`Action`] to the task tree.
     pub fn update(&mut self, action: Action<R>) {
-        self.tasks.apply(action);
+        self.tasks.apply(action, self.r.event_buffer_strategy());
     }
 
     /// Renders the current task tree to `target`.

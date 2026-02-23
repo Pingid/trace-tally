@@ -44,7 +44,7 @@ pub trait Renderer: Sized {
 
     /// Controls how events are buffered per task.
     /// Override this to change the default rolling window of 3.
-    fn event_buffer_strategy() -> BufferStrategy {
+    fn event_buffer_strategy(&self) -> BufferStrategy {
         BufferStrategy::default()
     }
 

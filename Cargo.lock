@@ -118,7 +118,7 @@ dependencies = [
 
 [[package]]
 name = "trace-tally"
-version = "0.0.0-alpha.3"
+version = "0.0.0-alpha.4"
 dependencies = [
  "indexmap",
  "tracing",
