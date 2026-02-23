@@ -1,0 +1,7 @@
+# Imports
+imports_granularity = "Module"
+group_imports = "StdExternalCrate"
+
+# Function and struct layout
+fn_params_layout = "Compressed" # keep function args inline when short
+where_single_line = true        # keep simple where clauses on one line

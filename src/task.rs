@@ -1,5 +1,6 @@
-use indexmap::{IndexMap, IndexSet};
 use std::collections::VecDeque;
+
+use indexmap::{IndexMap, IndexSet};
 
 use crate::{Action, Renderer};
 
@@ -46,8 +47,7 @@ pub struct TaskRegistry<R: Renderer> {
 }
 
 impl<R: Renderer> Clone for TaskRegistry<R>
-where
-    Task<R>: Clone,
+where Task<R>: Clone
 {
     fn clone(&self) -> Self {
         Self {
@@ -57,8 +57,7 @@ where
 }
 
 impl<R: Renderer> std::fmt::Debug for TaskRegistry<R>
-where
-    Task<R>: std::fmt::Debug,
+where Task<R>: std::fmt::Debug
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "TaskRegistry {{")?;
@@ -129,7 +128,14 @@ impl<R: Renderer> TaskRegistry<R> {
                     task.complete_task();
                 }
             }
-            Action::Exit => {}
+            Action::Finnish => {
+                let subtasks = self.root().subtasks.len();
+                for i in 0..subtasks {
+                    let id = *self.root().subtasks.get_index(i).unwrap();
+                    let task = self.tasks.get_mut(&id).unwrap();
+                    task.complete_task();
+                }
+            }
         }
     }
 

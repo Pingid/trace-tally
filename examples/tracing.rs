@@ -1,6 +1,10 @@
 use std::io::Write;
-use std::sync::mpsc;
-use trace_tally::{EventMapper, EventView, Renderer, TallyLayer, Target, TaskRenderer, TaskView};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, mpsc};
+
+use trace_tally::{
+    Action, EventMapper, EventView, Renderer, Target, TaskRenderer, TaskTraceLayer, TaskView,
+};
 
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -18,9 +22,7 @@ impl Renderer for TestRenderer {
     }
 
     fn task_start(
-        &mut self,
-        target: &mut Target<'_>,
-        span: TaskView<'_, Self>,
+        &mut self, target: &mut Target<'_>, span: TaskView<'_, Self>,
     ) -> Result<(), std::io::Error> {
         let indent = " ".repeat(span.depth());
         let frame = SPINNER_FRAMES[self.tick % SPINNER_FRAMES.len()];
@@ -28,9 +30,7 @@ impl Renderer for TestRenderer {
     }
 
     fn event(
-        &mut self,
-        target: &mut Target<'_>,
-        event: EventView<'_, Self>,
+        &mut self, target: &mut Target<'_>, event: EventView<'_, Self>,
     ) -> Result<(), std::io::Error> {
         if event.is_root() {
             writeln!(target, "{}", event.data())
@@ -41,9 +41,7 @@ impl Renderer for TestRenderer {
     }
 
     fn task_end(
-        &mut self,
-        target: &mut Target<'_>,
-        span: TaskView<'_, Self>,
+        &mut self, target: &mut Target<'_>, span: TaskView<'_, Self>,
     ) -> Result<(), std::io::Error> {
         let indent = " ".repeat(span.depth());
         writeln!(target, "{}✓ {}", indent, span.data())
@@ -80,22 +78,25 @@ fn main() {
 
     let (tx, rx) = mpsc::channel();
 
-    let layer = TestEventMapper::layer(tx.clone());
+    let layer = TestEventMapper::task_layer(tx.clone());
     tracing_subscriber::registry().with(layer.clone()).init();
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_signal = stop.clone();
 
     let handle = std::thread::spawn(move || {
         let mut writer = TaskRenderer::new(TestRenderer::default());
 
         loop {
             while let Ok(action) = rx.try_recv() {
-                let exist = action.is_exit();
                 writer.update(action);
-                if exist {
-                    writer.render(&mut std::io::stderr()).unwrap();
-                    return;
-                }
             }
             writer.render(&mut std::io::stderr()).unwrap();
+            if stop_signal.load(Ordering::Relaxed) {
+                writer.update(Action::Finnish);
+                writer.render(&mut std::io::stderr()).unwrap();
+                break;
+            }
             sleep(200);
         }
     });
@@ -170,7 +171,7 @@ fn main() {
     task2.join().unwrap();
     task3.join().unwrap();
 
-    layer.exit();
+    stop.store(true, Ordering::Relaxed);
     handle.join().unwrap();
 }
 

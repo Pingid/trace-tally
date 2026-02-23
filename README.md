@@ -18,6 +18,7 @@ Using trace-tally requires implementing two traits to control how your data is p
 
 ```rust
 use std::io::Write;
+
 use trace_tally::*;
 
 // Define how to display spans and events
@@ -28,15 +29,21 @@ impl Renderer for MyRenderer {
     type EventData = String;
     type TaskData = String;
 
-    fn task_start(&mut self, target: &mut Target<'_>, task: TaskView<'_, Self>) -> std::io::Result<()> {
+    fn task_start(
+        &mut self, target: &mut Target<'_>, task: TaskView<'_, Self>,
+    ) -> std::io::Result<()> {
         writeln!(target, "{} {}", " ".repeat(task.depth()), task.data())
     }
 
-    fn event(&mut self, target: &mut Target<'_>, event: EventView<'_, Self>) -> std::io::Result<()> {
+    fn event(
+        &mut self, target: &mut Target<'_>, event: EventView<'_, Self>,
+    ) -> std::io::Result<()> {
         writeln!(target, "{}  -> {}", " ".repeat(event.depth()), event.data())
     }
 
-    fn task_end(&mut self, target: &mut Target<'_>, task: TaskView<'_, Self>) -> std::io::Result<()> {
+    fn task_end(
+        &mut self, target: &mut Target<'_>, task: TaskView<'_, Self>,
+    ) -> std::io::Result<()> {
         writeln!(target, "{}done: {}", " ".repeat(task.depth()), task.data())
     }
 }
@@ -65,7 +72,9 @@ impl<'a> tracing::field::Visit for MessageVisitor<'a> {
 
 // Setup render loop
 fn main() {
-    use std::sync::mpsc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, mpsc};
+
     use tracing::{info, info_span};
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
@@ -73,22 +82,26 @@ fn main() {
     let (tx, rx) = mpsc::channel();
 
     // Create tracing subscriber layer
-    let layer = MyMapper::layer(tx);
+    let layer = MyMapper::task_layer(tx.clone());
 
     // Setup tracing subscriber
-    tracing_subscriber::registry().with(layer.clone()).init();
+    tracing_subscriber::registry().with(layer).init();
+
+    // Setup signal for stopping render thread
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_signal = stop.clone();
 
     // Render loop on a background thread
     let handle = std::thread::spawn(move || {
         let mut writer = TaskRenderer::new(MyRenderer::default());
         loop {
             while let Ok(action) = rx.try_recv() {
-                let exit = action.is_exit();
                 writer.update(action);
-                if exit {
-                    writer.render(&mut std::io::stderr()).unwrap();
-                    return;
-                }
+            }
+            if stop_signal.load(Ordering::Relaxed) {
+                writer.update(Action::Finnish);
+                writer.render(&mut std::io::stderr()).unwrap();
+                break;
             }
             writer.render(&mut std::io::stderr()).unwrap();
             std::thread::sleep(std::time::Duration::from_millis(100));
@@ -99,19 +112,22 @@ fn main() {
     let span = info_span!("my_task");
     span.in_scope(|| info!("working..."));
 
-    layer.exit();
+    // Signal render thread to stop
+    stop.store(true, Ordering::Relaxed);
+
+    // Wait for thread to close
     handle.join().unwrap();
 }
 ```
 
 ## API
 
-| Type                     | Role                                                                      |
-| ------------------------ | ------------------------------------------------------------------------- |
-| `Renderer`               | Trait — define `TaskData`/`EventData` types and rendering callbacks.      |
-| `EventMapper`            | Trait — extract custom data from tracing spans and events.                |
-| `TaskRenderer`           | Receives `Action`s, manages the task tree state, and drives rendering.    |
-| `TaskLayer`              | The tracing `Layer` that captures spans/events and sends actions.         |
-| `Target`                 | Terminal writer with ANSI cursor control for frame clearing.              |
-| `TaskView` / `EventView` | Read-only views passed to renderer callbacks to access underlying data.   |
-| `Action`                 | Enum representing state changes: `TaskStart`, `Event`, `TaskEnd`, `Exit`. |
+| Type                     | Role                                                                        |
+| ------------------------ | --------------------------------------------------------------------------- |
+| `Renderer`               | Trait — define `TaskData`/`EventData` types and rendering callbacks.        |
+| `EventMapper`            | Trait — extract custom data from tracing spans and events.                  |
+| `TaskRenderer`           | Receives `Action`s, manages the task tree state, and drives rendering.      |
+| `TaskLayer`              | The tracing `Layer` that captures spans/events and sends actions.           |
+| `Target`                 | Terminal writer with ANSI cursor control for frame clearing.                |
+| `TaskView` / `EventView` | Read-only views passed to renderer callbacks to access underlying data.     |
+| `Action`                 | Enum representing state changes: `TaskStart`, `Event`, `TaskEnd`, `Finnish` |

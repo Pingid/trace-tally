@@ -1,17 +1,14 @@
 use std::collections::HashMap;
 use std::marker::PhantomData;
-use std::sync::Arc;
-use std::sync::Mutex;
-use std::sync::atomic::AtomicU64;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+
 use tracing::Subscriber;
-use tracing::span::Attributes;
-use tracing::span::Id;
+use tracing::span::{Attributes, Id};
 use tracing_subscriber::Layer;
 use tracing_subscriber::registry::LookupSpan;
 
-use crate::TaskId;
-use crate::{Action, Renderer};
+use crate::{Action, Renderer, TaskId};
 
 pub trait EventMapper<R: Renderer> {
     fn map_span(attrs: &tracing::span::Attributes<'_>) -> R::TaskData;
@@ -30,17 +27,19 @@ impl<R: Renderer + 'static> ActionSender<R> for std::sync::mpsc::Sender<Action<R
     }
 }
 
-pub trait TallyLayer<R: Renderer, M: EventMapper<R>, T: ActionSender<R>> {
-    fn layer(sender: T) -> TaskLayer<R, M, T>;
+pub trait TaskTraceLayer<R: Renderer, M: EventMapper<R>, T: ActionSender<R>> {
+    fn task_layer(sender: T) -> TaskLayer<R, M, T>;
 }
 
-impl<R: Renderer, M: EventMapper<R>, T: ActionSender<R>> TallyLayer<R, M, T> for M {
-    fn layer(sender: T) -> TaskLayer<R, M, T> {
+impl<R: Renderer, M: EventMapper<R>, T: ActionSender<R>> TaskTraceLayer<R, M, T> for M {
+    fn task_layer(sender: T) -> TaskLayer<R, M, T> {
         TaskLayer::new(sender)
     }
 }
 
-pub fn layer<R: Renderer, M: EventMapper<R>, T: ActionSender<R>>(sender: T) -> TaskLayer<R, M, T> {
+pub fn task_layer<R: Renderer, M: EventMapper<R>, T: ActionSender<R>>(
+    sender: T,
+) -> TaskLayer<R, M, T> {
     TaskLayer::new(sender)
 }
 
@@ -72,8 +71,7 @@ pub struct TaskLayer<R: Renderer, M: EventMapper<R>, T: ActionSender<R>> {
 }
 
 impl<R: Renderer, M: EventMapper<R>, T: ActionSender<R>> Clone for TaskLayer<R, M, T>
-where
-    T: Clone,
+where T: Clone
 {
     fn clone(&self) -> Self {
         Self {
@@ -94,10 +92,6 @@ impl<R: Renderer, M: EventMapper<R>, T: ActionSender<R>> TaskLayer<R, M, T> {
             _renderer: PhantomData,
         }
     }
-
-    pub fn exit(&self) {
-        let _ = self.tx.send_action(Action::Exit);
-    }
 }
 
 impl<S, R, M, T> Layer<S> for TaskLayer<R, M, T>
@@ -108,10 +102,7 @@ where
     T: ActionSender<R> + 'static,
 {
     fn on_new_span(
-        &self,
-        attrs: &Attributes<'_>,
-        id: &Id,
-        ctx: tracing_subscriber::layer::Context<'_, S>,
+        &self, attrs: &Attributes<'_>, id: &Id, ctx: tracing_subscriber::layer::Context<'_, S>,
     ) {
         let u_id = self.ids.get_or_create(id);
         let parent_id = ctx

@@ -1,9 +1,8 @@
-use std::{collections::VecDeque, io::Write};
+use std::collections::VecDeque;
+use std::io::Write;
 
-use crate::{
-    Action, EventRef, Renderer,
-    task::{Task, TaskId, TaskRegistry},
-};
+use crate::task::{Task, TaskId, TaskRegistry};
+use crate::{Action, EventRef, Renderer};
 
 pub struct Target<'a> {
     target: &'a mut dyn Write,
@@ -77,9 +76,7 @@ pub struct EventView<'a, R: Renderer> {
 }
 
 fn event_view<'a, R: Renderer>(
-    tasks: &'a mut TaskRegistry<R>,
-    task: TaskId,
-    id: usize,
+    tasks: &'a mut TaskRegistry<R>, task: TaskId, id: usize,
 ) -> EventView<'a, R> {
     EventView {
         tasks,
@@ -114,8 +111,7 @@ pub struct TaskRenderer<R: Renderer> {
 }
 
 impl<R: Renderer> Default for TaskRenderer<R>
-where
-    R: Default,
+where R: Default
 {
     fn default() -> Self {
         Self::new(R::default())
@@ -195,9 +191,7 @@ impl<R: Renderer> TaskRenderer<R> {
     }
 
     fn render_task(
-        &mut self,
-        target: &mut Target<'_>,
-        task: &TaskId,
+        &mut self, target: &mut Target<'_>, task: &TaskId,
     ) -> Result<(VecDeque<TaskId>, VecDeque<TaskId>), std::io::Error> {
         let mut active = VecDeque::new();
         let mut completed = VecDeque::new();
