@@ -1,7 +1,9 @@
-#![doc = include_str!("../README.md")]
+#![cfg_attr(feature = "tracing", doc = include_str!("../README.md"))]
 
 pub(crate) mod task;
+#[cfg(feature = "tracing")]
 pub(crate) mod tracing;
+pub(crate) mod view;
 pub(crate) mod writer;
 
 #[cfg(test)]
@@ -11,11 +13,11 @@ mod test;
 pub mod prelude {
     pub use crate::Renderer;
     pub use crate::task::TaskId;
-    pub use crate::tracing::{ActionTransport, TaskLayer, TaskTraceLayer, TraceMapper, task_layer};
-    pub use crate::writer::{EventView, FrameWriter, TaskRenderer, TaskView};
+    #[cfg(feature = "tracing")]
+    pub use crate::tracing::*;
+    pub use crate::view::{EventView, FrameWriter, TaskView};
+    pub use crate::writer::TaskRenderer;
 }
-
-use std::collections::VecDeque;
 
 pub use crate::prelude::*;
 
@@ -30,6 +32,32 @@ pub use crate::prelude::*;
 /// [`render_task`]: Renderer::render_task
 /// [`render_task_line`]: Renderer::render_task_line
 /// [`render_event_line`]: Renderer::render_event_line
+///
+/// # Example
+///
+/// ```rust
+/// use trace_tally::*;
+/// use std::io::Write;
+///
+/// struct MyRenderer;
+///
+/// impl Renderer for MyRenderer {
+///     type EventData = String;
+///     type TaskData = String;
+///
+///     fn render_task_line(
+///         &mut self, frame: &mut FrameWriter<'_>, task: &TaskView<'_, Self>,
+///     ) -> std::io::Result<()> {
+///         writeln!(frame, "{}{}", " ".repeat(task.depth()), task.data())
+///     }
+///
+///     fn render_event_line(
+///         &mut self, frame: &mut FrameWriter<'_>, event: &EventView<'_, Self>,
+///     ) -> std::io::Result<()> {
+///         writeln!(frame, "{}  {}", " ".repeat(event.depth()), event.data())
+///     }
+/// }
+/// ```
 pub trait Renderer: Sized {
     /// Data stored per event (e.g. a log message or span field snapshot).
     type EventData: Send + 'static;
@@ -42,16 +70,11 @@ pub trait Renderer: Sized {
     /// Called once at the end of each render frame, after all tasks have been visited.
     fn on_render_end(&mut self) {}
 
-    /// Controls how events are buffered per task.
-    /// Override this to change the default rolling window of 3.
-    fn event_buffer_strategy(&self) -> BufferStrategy {
-        BufferStrategy::default()
-    }
-
     /// Renders a complete task and its descendants.
     ///
-    /// The default implementation renders the task line, then each buffered
-    /// event (skipped for completed tasks), then recurses into subtasks.
+    /// The default implementation renders the task line, then the last 3
+    /// buffered events (skipped for completed tasks), then recurses into
+    /// subtasks. Override this to change traversal order or the event cap.
     #[allow(unused_variables)]
     fn render_task(
         &mut self,
@@ -60,7 +83,7 @@ pub trait Renderer: Sized {
     ) -> Result<(), std::io::Error> {
         self.render_task_line(frame, task)?;
         if !task.completed() {
-            for event in task.events() {
+            for event in task.events().rev().take(3).rev() {
                 self.render_event_line(frame, &event)?;
             }
         }
@@ -92,6 +115,26 @@ pub trait Renderer: Sized {
 }
 
 /// A state change in the task tree.
+///
+/// # Example
+///
+/// ```rust
+/// use trace_tally::*;
+///
+/// struct MyRenderer;
+/// impl Renderer for MyRenderer {
+///     type EventData = String;
+///     type TaskData = String;
+/// }
+///
+/// let mut renderer = TaskRenderer::new(MyRenderer);
+/// renderer.update(Action::TaskStart {
+///     id: TaskId::from(2),
+///     parent: None,
+///     data: "my task".into(),
+/// });
+/// renderer.render(&mut std::io::stderr()).unwrap();
+/// ```
 #[derive(Debug, Clone)]
 pub enum Action<R: Renderer> {
     /// A new event on an existing task (or the root if `parent` is `None`).
@@ -100,6 +143,9 @@ pub enum Action<R: Renderer> {
         data: R::EventData,
     },
     /// A new task has started.
+    ///
+    /// If `parent` is `None` or refers to an unknown ID, the task is
+    /// attached to the virtual root.
     TaskStart {
         id: TaskId,
         parent: Option<TaskId>,
@@ -108,46 +154,9 @@ pub enum Action<R: Renderer> {
     /// A task has completed.
     TaskEnd { id: TaskId },
     /// Mark all pending tasks as cancelled.
+    ///
+    /// Walks every task reachable from root and sets them as cancelled.
+    /// Cancelled tasks still render (via [`TaskView::cancelled`]) but are
+    /// flushed from the active frame on the next render, like completed tasks.
     CancelAll,
-}
-
-/// Controls how events are retained in a task's event buffer.
-#[derive(Debug, Clone)]
-pub enum BufferStrategy {
-    /// Keep only the most recent `n` events (sliding window).
-    Rolling(usize),
-    /// Keep only the single most recent event.
-    KeepLast,
-    /// Keep all events (unbounded).
-    KeepAll,
-    /// Don't buffer events at all.
-    None,
-}
-
-impl Default for BufferStrategy {
-    fn default() -> Self {
-        Self::Rolling(3)
-    }
-}
-
-impl BufferStrategy {
-    /// Push an event into the buffer, enforcing the retention policy.
-    pub(crate) fn push<T>(&self, buffer: &mut VecDeque<T>, event: T) {
-        match self {
-            Self::None => {}
-            Self::KeepLast => {
-                buffer.clear();
-                buffer.push_back(event);
-            }
-            Self::KeepAll => {
-                buffer.push_back(event);
-            }
-            Self::Rolling(max) => {
-                buffer.push_back(event);
-                while buffer.len() > *max {
-                    buffer.pop_front();
-                }
-            }
-        }
-    }
 }

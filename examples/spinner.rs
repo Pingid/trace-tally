@@ -1,73 +1,69 @@
+//! Channel-based rendering with spinner animation and nested tasks.
+//!
+//! Unlike the inline example, `channel_layer` decouples tracing from rendering
+//! via a channel. A dedicated thread runs a render loop that drains pending
+//! actions and repaints at fixed intervals, enabling smooth animation.
+
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
 
-use trace_tally::{
-    Action, EventView, FrameWriter, Renderer, TaskRenderer, TaskTraceLayer, TaskView, TraceMapper,
-};
+use trace_tally::*;
 
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
+// -- Renderer ----------------------------------------------------------------
+
 #[derive(Debug, Default)]
-struct TestRenderer {
+struct SpinnerRenderer {
     tick: usize,
 }
 
-impl Renderer for TestRenderer {
+impl Renderer for SpinnerRenderer {
     type EventData = String;
     type TaskData = String;
 
+    // Called once per frame — use for animation state like spinner position.
     fn on_render_start(&mut self) {
         self.tick = (self.tick + 1) % SPINNER_FRAMES.len();
     }
 
-    fn render_task(
-        &mut self,
-        target: &mut FrameWriter<'_>,
-        task: &TaskView<'_, Self>,
-    ) -> Result<(), std::io::Error> {
-        self.render_task_line(target, task)?;
-        if !task.completed() {
-            for event in task.events() {
-                self.render_event_line(target, &event)?;
-            }
-        }
-        for subtask in task.subtasks() {
-            self.render_task_line(target, &subtask)?;
-        }
-        Ok(())
-    }
-
     fn render_task_line(
         &mut self,
-        target: &mut FrameWriter<'_>,
+        frame: &mut FrameWriter<'_>,
         task: &TaskView<'_, Self>,
     ) -> Result<(), std::io::Error> {
         let indent = " ".repeat(task.depth());
         if task.completed() {
-            return writeln!(target, "{}✓ {}", indent, task.data());
+            return writeln!(frame, "{}✓ {}", indent, task.data());
         }
-        let frame = SPINNER_FRAMES[self.tick % SPINNER_FRAMES.len()];
-        writeln!(target, "{} {} {}", indent, frame, task.data())
+        let spinner = SPINNER_FRAMES[self.tick % SPINNER_FRAMES.len()];
+        writeln!(frame, "{} {} {}", indent, spinner, task.data())
     }
 
     fn render_event_line(
         &mut self,
-        target: &mut FrameWriter<'_>,
+        frame: &mut FrameWriter<'_>,
         event: &EventView<'_, Self>,
     ) -> Result<(), std::io::Error> {
+        // Events outside any span belong to the virtual root task.
         if event.is_root() {
-            writeln!(target, "{}", event.data())
+            writeln!(frame, "{}", event.data())
         } else {
             let indent = " ".repeat(event.depth());
-            writeln!(target, "{}   -> {}", indent, event.data())
+            writeln!(frame, "{}   -> {}", indent, event.data())
         }
     }
 }
 
-struct TestTraceMapper;
+// -- Tracing integration -----------------------------------------------------
 
-impl TraceMapper<TestRenderer> for TestTraceMapper {
+struct Mapper;
+
+impl TraceMapper for Mapper {
+    type EventData = String;
+    type TaskData = String;
+
     fn map_event(event: &tracing::Event<'_>) -> String {
         let mut message = String::new();
         event.record(&mut MessageVisitor(&mut message));
@@ -91,36 +87,45 @@ impl<'a> tracing::field::Visit for MessageVisitor<'a> {
     }
 }
 
+// -- Main --------------------------------------------------------------------
+
 fn main() {
     use tracing::{info, info_span};
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
 
+    // channel_layer sends actions through tx instead of rendering inline.
     let (tx, rx) = mpsc::channel();
 
-    let layer = TestTraceMapper::task_layer(tx.clone());
+    let layer = Mapper::channel_layer::<SpinnerRenderer, _>(tx)
+        .with_error_handler(|e| eprintln!("transport error: {e}"));
+
     tracing_subscriber::registry().with(layer).init();
 
+    // Shared flag to signal the render thread to exit.
     let stop = Arc::new(AtomicBool::new(false));
     let stop_signal = stop.clone();
 
     let handle = std::thread::spawn(move || {
-        let mut writer = TaskRenderer::new(TestRenderer::default());
+        let mut renderer = TaskRenderer::new(SpinnerRenderer::default());
 
         loop {
+            // Drain all pending actions before rendering to avoid partial frames.
             while let Ok(action) = rx.try_recv() {
-                writer.update(action);
+                renderer.update(action);
             }
-            writer.render(&mut std::io::stderr()).unwrap();
+            renderer.render(&mut std::io::stderr()).unwrap();
             if stop_signal.load(Ordering::Relaxed) {
-                writer.update(Action::CancelAll);
-                writer.render(&mut std::io::stderr()).unwrap();
+                // Mark remaining tasks as cancelled for a clean final frame.
+                renderer.update(Action::CancelAll);
+                renderer.render(&mut std::io::stderr()).unwrap();
                 break;
             }
             sleep(200);
         }
     });
 
+    // Simulation: emit tracing events from multiple threads
     info!("loading config from deploy.toml");
     sleep(100);
     info!("resolved 14 packages in 0.3s");
@@ -170,6 +175,7 @@ fn main() {
             sleep(600);
             root_span.in_scope(|| info!("preparing {env} rollout"));
 
+            // parent: creates a nested task hierarchy under root_span.
             let child_span = info_span!(parent: &root_span, "deploy", message = format!("{env}"));
             let steps = [
                 "running preflight checks",

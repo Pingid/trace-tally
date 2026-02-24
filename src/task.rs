@@ -1,9 +1,9 @@
-use std::collections::VecDeque;
 use std::num::NonZeroUsize;
+use std::{collections::VecDeque, time::Instant};
 
 use indexmap::{IndexMap, IndexSet};
 
-use crate::{Action, BufferStrategy, Renderer};
+use crate::{Action, Renderer};
 
 /// Unique identifier for a task in the tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -24,15 +24,18 @@ impl TaskId {
     }
 }
 
+impl From<usize> for TaskId {
+    fn from(id: usize) -> Self {
+        match id {
+            0 => panic!("TaskId cannot be 0"),
+            _ => Self(id),
+        }
+    }
+}
+
 /// Index reference to an event within a task's event buffer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct EventIndex(pub(crate) usize);
-
-impl From<usize> for EventIndex {
-    fn from(id: usize) -> Self {
-        Self(id)
-    }
-}
 
 pub struct TaskStore<R: Renderer> {
     pub(crate) tasks: IndexMap<TaskId, Task<R>>,
@@ -89,14 +92,14 @@ impl<R: Renderer> TaskStore<R> {
         }
     }
 
-    pub(crate) fn apply(&mut self, action: Action<R>, buffer_strategy: BufferStrategy) {
+    pub(crate) fn apply(&mut self, action: Action<R>) {
         match action {
             Action::Event {
                 parent,
                 data: event,
             } => {
                 if let Some(task) = self.get_task_mut(parent) {
-                    BufferStrategy::push(&buffer_strategy, &mut task.events, event);
+                    task.events.push_back(event);
                 }
             }
             Action::TaskStart {
@@ -154,6 +157,7 @@ pub struct Task<R: Renderer> {
     pub(crate) depth: usize,
     pub(crate) completed: bool,
     pub(crate) cancelled: bool,
+    pub(crate) started_at: Instant,
     pub(crate) parent: Option<TaskId>,
     pub(crate) data: Option<R::TaskData>,
     pub(crate) events: VecDeque<R::EventData>,
@@ -185,6 +189,7 @@ impl<R: Renderer> Task<R> {
             parent,
             completed: false,
             cancelled: false,
+            started_at: Instant::now(),
             events: VecDeque::new(),
             subtasks: IndexSet::new(),
         }

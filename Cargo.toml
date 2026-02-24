@@ -11,5 +11,35 @@ categories = ["development-tools::debugging", "command-line-interface"]
 
 [dependencies]
 indexmap = "2.13.0"
-tracing = "0.1.44"
-tracing-subscriber = "0.3.22"
+
+tracing = { version = "0.1.44", optional = true }
+tracing-subscriber = { version = "0.3.22", optional = true }
+
+[features]
+default = ["tracing"]
+tracing = ["dep:tracing", "dep:tracing-subscriber"]
+
+[[example]]
+name = "inline"
+required-features = ["tracing"]
+
+[[example]]
+name = "spinner"
+required-features = ["tracing"]
+
+[[example]]
+name = "progress"
+required-features = ["tracing"]
+
+[[example]]
+name = "ci"
+required-features = ["tracing"]
+
+[dev-dependencies]
+owo-colors = "4"
+tokio = { version = "1", features = [
+    "macros",
+    "rt-multi-thread",
+    "sync",
+    "time",
+] }
