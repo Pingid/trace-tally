@@ -39,6 +39,7 @@ pub(crate) struct EventIndex(pub(crate) usize);
 
 pub struct TaskStore<R: Renderer> {
     pub(crate) tasks: IndexMap<TaskId, Task<R>>,
+    pub(crate) max_events: usize,
 }
 
 impl<R: Renderer> Clone for TaskStore<R>
@@ -48,6 +49,7 @@ where
     fn clone(&self) -> Self {
         Self {
             tasks: self.tasks.clone(),
+            max_events: self.max_events,
         }
     }
 }
@@ -67,10 +69,13 @@ where
 
 impl<R: Renderer> TaskStore<R> {
     pub(crate) fn new() -> Self {
+        Self::with_max_events(64)
+    }
+
+    pub(crate) fn with_max_events(max_events: usize) -> Self {
         let mut tasks = IndexMap::new();
-        let task = Task::new(0, None, None);
-        tasks.insert(TaskId::ROOT, task);
-        Self { tasks }
+        tasks.insert(TaskId::ROOT, Task::new(0, None, None));
+        Self { tasks, max_events }
     }
 
     pub(crate) fn root(&mut self) -> &mut Task<R> {
@@ -94,12 +99,13 @@ impl<R: Renderer> TaskStore<R> {
 
     pub(crate) fn apply(&mut self, action: Action<R>) {
         match action {
-            Action::Event {
-                parent,
-                data: event,
-            } => {
+            Action::Event { parent, data } => {
+                let max_events = self.max_events;
                 if let Some(task) = self.get_task_mut(parent) {
-                    task.events.push_back(event);
+                    task.events.push_back(data);
+                    while task.events.len() > max_events {
+                        task.events.pop_front();
+                    }
                 }
             }
             Action::TaskStart {

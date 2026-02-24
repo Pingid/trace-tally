@@ -70,6 +70,13 @@ impl<R: Renderer> TaskRenderer<R> {
         }
     }
 
+    /// Cap the number of events retained per task. Oldest events are
+    /// dropped when the limit is exceeded. Default is 64.
+    pub fn max_events_per_task(mut self, n: usize) -> Self {
+        self.tasks = TaskStore::with_max_events(n);
+        self
+    }
+
     /// Applies a single [`Action`] to the task tree.
     pub fn update(&mut self, action: Action<R>) {
         self.tasks.apply(action);
