@@ -1,9 +1,9 @@
 //! Multi-level task hierarchy with per-variant rendering and colored event levels.
 //!
-//! Demonstrates a three-tier `TaskData` enum (Pipeline → Stage → Step) where each
-//! variant controls its own subtree rendering. A custom `EventData` carries semantic
-//! levels (info/warn/error/success) for colored output. Builds on the async channel
-//! pattern from `tokio.rs` and `cargo.rs`.
+//! A three-tier `TaskData` enum (Pipeline → Stage → Step) where each variant
+//! controls its own subtree via `render_task` dispatch. A custom `EventData`
+//! carries semantic levels for colored output. See `tokio.rs` for the async
+//! channel pattern used here.
 
 use std::io::Write;
 use std::time::{Duration, Instant};

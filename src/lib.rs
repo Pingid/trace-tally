@@ -1,10 +1,13 @@
 #![cfg_attr(feature = "tracing", doc = include_str!("../README.md"))]
 
+pub(crate) mod runner;
 pub(crate) mod task;
 #[cfg(feature = "tracing")]
 pub(crate) mod tracing;
 pub(crate) mod view;
 pub(crate) mod writer;
+
+pub mod util;
 
 #[cfg(test)]
 mod test;
@@ -12,6 +15,7 @@ mod test;
 /// Re-exports of all public types and traits.
 pub mod prelude {
     pub use crate::Renderer;
+    pub use crate::runner::{ActionSource, RenderLoop};
     pub use crate::task::TaskId;
     #[cfg(feature = "tracing")]
     pub use crate::tracing::*;

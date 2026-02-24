@@ -7,6 +7,6 @@ Set Padding 20
 Set FontFamily "Menlo"
 Set LineHeight 1.2
 
-Type "cargo run --example tracing"
+Type "cargo run --example ci"
 Enter
 Sleep 15s

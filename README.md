@@ -22,7 +22,6 @@ use trace_tally::*;
 
 // Define how to display spans and events
 struct MyRenderer;
-
 impl Renderer for MyRenderer {
     type EventData = String;
     type TaskData = String;
@@ -101,7 +100,7 @@ trace-tally provides two layer constructors:
 - **[`inline_layer`]** renders synchronously on every span/event. No background thread needed. Best for short-lived CLI tools where simplicity matters.
 - **[`channel_layer`]** sends actions over an `mpsc` channel to a separate render loop. This decouples tracing from rendering, enabling timed redraws and spinner animations.
 
-The complete example above uses [`inline_layer`]. See [`examples/spinner.rs`](./examples/spinner.rs) for a [`channel_layer`] setup with animated output.
+The complete example above uses [`inline_layer`]. See [`examples/render_loop.rs`](./examples/render_loop.rs) for a [`channel_layer`] setup with animated output.
 
 Both require that the `TraceMapper` associated types match the `Renderer` associated types (`TaskData` and `EventData`). A mismatch produces a compile error on the [`inline_layer`] / [`channel_layer`] call.
 

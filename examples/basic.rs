@@ -1,17 +1,12 @@
 //! Synchronous inline rendering — the simplest way to use trace-tally.
 //!
-//! Demonstrates the two core extension points: [`Renderer`] (how to display)
-//! and [`TraceMapper`] (how to extract data from tracing). The inline layer
-//! renders synchronously on every tracing event, so no render loop is needed.
+//! The inline layer renders on every tracing event with no render thread
+//! or channel needed. Shows the two core traits: [`Renderer`] and [`TraceMapper`].
 
 use std::io::Write;
-
 use trace_tally::*;
 
-// -- Renderer ----------------------------------------------------------------
-
-// Renderer controls how tasks and events appear in the terminal.
-// Its associated types must match the TraceMapper below.
+// Define how to display spans and events
 struct MyRenderer;
 
 impl Renderer for MyRenderer {
@@ -23,11 +18,11 @@ impl Renderer for MyRenderer {
         frame: &mut FrameWriter<'_>,
         task: &TaskView<'_, Self>,
     ) -> std::io::Result<()> {
+        let indent = " ".repeat(task.depth());
         if task.completed() {
-            return writeln!(frame, "{}✓ {}", " ".repeat(task.depth()), task.data());
+            return writeln!(frame, "{indent}✓ {}", task.data());
         }
-        // task.depth() gives the nesting level for indentation
-        writeln!(frame, "{} {}", " ".repeat(task.depth()), task.data())
+        writeln!(frame, "{indent} {}", task.data())
     }
 
     fn render_event_line(
@@ -39,9 +34,7 @@ impl Renderer for MyRenderer {
     }
 }
 
-// -- Tracing integration -----------------------------------------------------
-
-// TraceMapper bridges tracing's untyped fields into the Renderer's typed data.
+// Define how to extract data from tracing primitives
 struct MyMapper;
 impl TraceMapper for MyMapper {
     type EventData = String;
@@ -52,12 +45,12 @@ impl TraceMapper for MyMapper {
         event.record(&mut MessageVisitor(&mut message));
         message
     }
+
     fn map_span(attrs: &tracing::span::Attributes<'_>) -> String {
         attrs.metadata().name().to_string()
     }
 }
 
-// tracing fields are visited via the Visit trait — there's no direct field access.
 struct MessageVisitor<'a>(&'a mut String);
 impl<'a> tracing::field::Visit for MessageVisitor<'a> {
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
@@ -67,21 +60,14 @@ impl<'a> tracing::field::Visit for MessageVisitor<'a> {
     }
 }
 
-// -- Main --------------------------------------------------------------------
-
 fn main() {
     use tracing::{info, info_span};
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
 
-    // inline_layer renders synchronously inside the tracing call — no render
-    // thread or channel needed. Good for simple one-shot output.
     let layer = MyMapper::inline_layer(MyRenderer, std::io::stderr());
-
     tracing_subscriber::registry().with(layer).init();
 
-    // info_span! creates a task, in_scope runs code inside it, and dropping
-    // the span closes the task.
     let span = info_span!("my_task");
     span.in_scope(|| {
         info!("working...");

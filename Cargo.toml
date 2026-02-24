@@ -1,6 +1,6 @@
 [package]
 name = "trace-tally"
-version = "0.0.0-alpha.5"
+version = "0.0.0-alpha.6"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Pingid/trace-tally"
@@ -20,15 +20,23 @@ default = ["tracing"]
 tracing = ["dep:tracing", "dep:tracing-subscriber"]
 
 [[example]]
-name = "inline"
+name = "basic"
 required-features = ["tracing"]
 
 [[example]]
-name = "spinner"
+name = "render_loop"
+required-features = ["tracing"]
+
+[[example]]
+name = "tree"
 required-features = ["tracing"]
 
 [[example]]
 name = "progress"
+required-features = ["tracing"]
+
+[[example]]
+name = "tokio"
 required-features = ["tracing"]
 
 [[example]]

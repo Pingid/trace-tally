@@ -1,24 +1,19 @@
-//! Async rendering with typed event data, progress bars, and `render_task` override.
+//! Typed event data with progress bars and `render_task` override.
 //!
-//! Builds on the channel pattern from `spinner.rs`, adapted for tokio. Introduces
-//! a custom [`ActionTransport`] newtype, typed `EventData` (not just `String`),
-//! and a `render_task` override that suppresses event lines when a progress bar
-//! is already shown on the task line.
+//! Shows that `EventData` can be any type — here a struct carrying typed
+//! progress fields. Uses [`ProgressBar`] and [`Spinner`] utilities, and
+//! overrides `render_task` to suppress event lines when a bar is visible.
 
 use std::io::Write;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use tokio::sync::mpsc;
-use tokio::time;
+use trace_tally::util::{ProgressBar, Spinner};
 use trace_tally::*;
-
-const SPINNER: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-const BAR_WIDTH: usize = 20;
 
 // -- Data types --------------------------------------------------------------
 
-// EventData can be any type — here we use a struct to carry both a display
-// message and optional typed progress fields.
 struct Event {
     message: String,
     progress: Option<Progress>,
@@ -47,50 +42,49 @@ impl Event {
 
 // -- Renderer ----------------------------------------------------------------
 
-#[derive(Debug, Default)]
-struct SpinnerRenderer {
-    tick: usize,
+struct MyRenderer {
+    spinner: Spinner,
 }
 
-impl Renderer for SpinnerRenderer {
+impl Renderer for MyRenderer {
     type EventData = Event;
     type TaskData = String;
 
     fn on_render_start(&mut self) {
-        self.tick = (self.tick + 1) % SPINNER.len();
+        self.spinner.tick();
     }
 
     fn render_task_line(
         &mut self,
         frame: &mut FrameWriter<'_>,
         task: &TaskView<'_, Self>,
-    ) -> Result<(), std::io::Error> {
+    ) -> std::io::Result<()> {
         let indent = " ".repeat(task.depth());
         if task.completed() {
-            return writeln!(frame, "{}✓ {}", indent, task.data());
+            return writeln!(frame, "{indent}✓ {}", task.data());
         }
 
-        let spinner = SPINNER[self.tick];
+        let spinner = self.spinner.frame();
 
-        // If the latest event has progress, render a bar inline
-        if let Some(event) = task.events().last() {
-            if let Some(p) = &event.data().progress {
-                let bar = progress_bar(p.done, p.total);
-                return writeln!(frame, "{} {} {} {}", indent, spinner, task.data(), bar);
-            }
+        // Show a progress bar inline when the latest event has progress data.
+        let progress = task.events().last().and_then(|e| {
+            let p = e.data().progress.as_ref()?;
+            Some((p.done, p.total))
+        });
+        if let Some((done, total)) = progress {
+            let bar = ProgressBar::new(done, total);
+            return writeln!(frame, "{indent}{spinner} {} {bar}", task.data());
         }
 
-        writeln!(frame, "{} {} {}", indent, spinner, task.data())
+        writeln!(frame, "{indent}{spinner} {}", task.data())
     }
 
-    // Override render_task to control what appears beneath each task.
-    // The default renders: task line → event lines → subtasks.
-    // Here we suppress event lines when a progress bar is on the task line.
+    // Override render_task to suppress event lines when a progress bar is shown.
     fn render_task(
         &mut self,
         frame: &mut FrameWriter<'_>,
         task: &TaskView<'_, Self>,
-    ) -> Result<(), std::io::Error> {
+    ) -> std::io::Result<()> {
         self.render_task_line(frame, task)?;
         let has_progress = task
             .events()
@@ -111,21 +105,18 @@ impl Renderer for SpinnerRenderer {
         &mut self,
         frame: &mut FrameWriter<'_>,
         event: &EventView<'_, Self>,
-    ) -> Result<(), std::io::Error> {
-        let indent = " ".repeat(event.depth());
+    ) -> std::io::Result<()> {
         if event.is_root() {
             writeln!(frame, "{}", event.data().message)
         } else {
-            writeln!(frame, "{}  → {}", indent, event.data().message)
+            writeln!(
+                frame,
+                "{}  -> {}",
+                " ".repeat(event.depth()),
+                event.data().message
+            )
         }
     }
-}
-
-fn progress_bar(done: u64, total: u64) -> String {
-    let ratio = done as f64 / total as f64;
-    let filled = (ratio * BAR_WIDTH as f64) as usize;
-    let empty = BAR_WIDTH - filled;
-    format!("[{}{}]", "█".repeat(filled), "░".repeat(empty))
 }
 
 // -- Tracing integration -----------------------------------------------------
@@ -155,8 +146,7 @@ impl TraceMapper for Mapper {
     }
 }
 
-// Visitor that extracts typed numeric fields (done/total) alongside the message.
-// record_u64 gives us native u64 values without parsing strings.
+// record_u64 gives native u64 values for done/total without string parsing.
 #[derive(Default)]
 struct FieldVisitor {
     message: Option<String>,
@@ -180,17 +170,6 @@ impl tracing::field::Visit for FieldVisitor {
     }
 }
 
-// ActionTransport is generic over the channel type. The orphan rule prevents
-// implementing it directly on tokio's Sender, so we use a newtype.
-struct TokioTransport(mpsc::UnboundedSender<Action<SpinnerRenderer>>);
-
-impl ActionTransport<SpinnerRenderer> for TokioTransport {
-    type Error = mpsc::error::SendError<Action<SpinnerRenderer>>;
-    fn send_action(&self, action: Action<SpinnerRenderer>) -> Result<(), Self::Error> {
-        self.0.send(action)
-    }
-}
-
 // -- Simulation --------------------------------------------------------------
 
 async fn download_package(pkg: &Package) {
@@ -199,8 +178,6 @@ async fn download_package(pkg: &Package) {
     let chunks = 8u64;
     let chunk_size = pkg.size_kb / chunks;
 
-    // .instrument() attaches the span to the future so events inside it
-    // parent correctly even across await points.
     async {
         for i in 1..=chunks {
             sleep(80 + pkg.size_kb / 3).await;
@@ -220,16 +197,28 @@ async fn main() {
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
 
-    let (tx, rx) = mpsc::unbounded_channel();
-    // Oneshot channel for shutdown — cleaner than a shared flag for select!
-    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    // std::sync::mpsc implements ActionTransport, so no newtype needed.
+    let (tx, rx) = std::sync::mpsc::channel();
 
-    let layer = Mapper::channel_layer::<SpinnerRenderer, _>(TokioTransport(tx))
+    let layer = Mapper::channel_layer::<MyRenderer, _>(tx)
         .with_error_handler(|e| eprintln!("transport error: {e}"));
 
     tracing_subscriber::registry().with(layer).init();
 
-    let render_handle = tokio::spawn(render_loop(rx, shutdown_rx));
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_flag = stop.clone();
+
+    // Render on a std thread while the async simulation runs on tokio.
+    let render_thread = std::thread::spawn(move || {
+        RenderLoop::new(
+            MyRenderer {
+                spinner: Spinner::dots(),
+            },
+            std::io::stderr(),
+        )
+        .interval(Duration::from_millis(80))
+        .run_until(rx, || stop_flag.load(Ordering::Relaxed));
+    });
 
     // Resolve phase
     info!("resolving dependencies for my-project v0.1.0");
@@ -252,12 +241,9 @@ async fn main() {
         .map(|pkg| tokio::spawn(download_package(pkg)))
         .collect();
 
-    async {
-        for dl in downloads {
-            dl.await.unwrap();
-        }
+    for dl in downloads {
+        dl.await.unwrap();
     }
-    .await;
 
     // Link phase
     async {
@@ -274,41 +260,8 @@ async fn main() {
     let total_kb: u64 = PACKAGES.iter().map(|p| p.size_kb).sum();
     info!("installed {} packages ({total_kb} KB)", PACKAGES.len());
 
-    let _ = shutdown_tx.send(());
-    render_handle.await.unwrap();
-}
-
-/// Same drain-then-render pattern as `spinner.rs`, adapted for async with
-/// `tokio::select!`. Actions are batched before each repaint.
-async fn render_loop(
-    mut rx: mpsc::UnboundedReceiver<Action<SpinnerRenderer>>,
-    mut shutdown: tokio::sync::oneshot::Receiver<()>,
-) {
-    let mut renderer = TaskRenderer::new(SpinnerRenderer::default());
-    let mut interval = time::interval(Duration::from_millis(80));
-
-    loop {
-        tokio::select! {
-            _ = interval.tick() => {
-                renderer.render(&mut std::io::stderr()).unwrap();
-            }
-            action = rx.recv() => {
-                match action {
-                    Some(action) => {
-                        renderer.update(action);
-                        while let Ok(action) = rx.try_recv() {
-                            renderer.update(action);
-                        }
-                        renderer.render(&mut std::io::stderr()).unwrap();
-                    }
-                    None => break,
-                }
-            }
-            _ = &mut shutdown => {
-                break;
-            }
-        }
-    }
+    stop.store(true, Ordering::Relaxed);
+    render_thread.join().unwrap();
 }
 
 async fn sleep(ms: u64) {

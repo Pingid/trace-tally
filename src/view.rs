@@ -141,6 +141,11 @@ impl<'a, R: Renderer> TaskView<'a, R> {
         let parent = self.tasks.task(&parent);
         parent.subtasks.get_index_of(&self.id).unwrap()
     }
+
+    /// Create a view of another task in the same tree.
+    pub fn view(&self, id: TaskId) -> TaskView<'a, R> {
+        TaskView::new(self.tasks, id)
+    }
 }
 
 /// Read-only view of a buffered event, passed to [`Renderer::render_event_line`].
