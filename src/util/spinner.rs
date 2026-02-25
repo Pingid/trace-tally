@@ -14,7 +14,7 @@
 ///
 ///     fn render_task_line(&mut self, f: &mut FrameWriter<'_>, task: &TaskView<'_, Self>) -> io::Result<()> {
 ///         if !task.completed() {
-///             write!(f, "{} ", self.spinner.frame())?;
+///             write!(f, "{} ", self.spinner)?;
 ///         }
 ///         writeln!(f, "{}", task.data())
 ///     }
@@ -69,5 +69,11 @@ impl Spinner {
 impl Default for Spinner {
     fn default() -> Self {
         Self::dots()
+    }
+}
+
+impl std::fmt::Display for Spinner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.frame())
     }
 }
