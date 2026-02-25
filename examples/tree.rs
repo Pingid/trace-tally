@@ -5,7 +5,7 @@
 
 use std::io::Write;
 
-use trace_tally::util::TreeIndent;
+use trace_tally::widgets::TreeIndent;
 use trace_tally::*;
 
 // -- Renderer ----------------------------------------------------------------

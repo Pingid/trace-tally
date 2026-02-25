@@ -7,7 +7,7 @@ pub(crate) mod tracing;
 pub(crate) mod view;
 pub(crate) mod writer;
 
-pub mod util;
+pub mod widgets;
 
 #[cfg(test)]
 mod test;
@@ -20,6 +20,7 @@ pub mod prelude {
     #[cfg(feature = "tracing")]
     pub use crate::tracing::*;
     pub use crate::view::{EventView, FrameWriter, TaskView};
+    pub use crate::widgets::*;
     pub use crate::writer::TaskRenderer;
 }
 

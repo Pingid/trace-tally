@@ -8,7 +8,7 @@ use std::io::Write;
 use std::time::Duration;
 
 use tokio::sync::mpsc;
-use trace_tally::util::Spinner;
+use trace_tally::widgets::Spinner;
 use trace_tally::*;
 
 // -- Renderer ----------------------------------------------------------------

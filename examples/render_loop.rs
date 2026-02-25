@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
-use trace_tally::util::Spinner;
+use trace_tally::widgets::Spinner;
 use trace_tally::*;
 
 // -- Renderer ----------------------------------------------------------------

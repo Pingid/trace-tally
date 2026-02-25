@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use trace_tally::util::{ProgressBar, Spinner};
+use trace_tally::widgets::{ProgressBar, Spinner};
 use trace_tally::*;
 
 // -- Data types --------------------------------------------------------------
