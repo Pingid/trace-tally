@@ -11,9 +11,9 @@ use crate::{Renderer, TaskId};
 ///
 /// ```rust,ignore
 /// fn render_task_line(
-///     &mut self, frame: &mut FrameWriter<'_>, task: &TaskView<'_, Self>,
+///     &mut self, f: &mut FrameWriter<'_>, task: &TaskView<'_, Self>,
 /// ) -> std::io::Result<()> {
-///     writeln!(frame, "Task: {}", task.data())
+///     writeln!(f, "Task: {}", task.data())
 /// }
 /// ```
 pub struct FrameWriter<'a> {
@@ -60,10 +60,10 @@ impl<'a> Write for FrameWriter<'a> {
 ///
 /// ```rust,ignore
 /// fn render_task_line(
-///     &mut self, frame: &mut FrameWriter<'_>, task: &TaskView<'_, Self>,
+///     &mut self, f: &mut FrameWriter<'_>, task: &TaskView<'_, Self>,
 /// ) -> std::io::Result<()> {
 ///     let prefix = if task.completed() { "done" } else { "..." };
-///     writeln!(frame, "[{}] {} (depth={})", prefix, task.data(), task.depth())
+///     writeln!(f, "[{}] {} (depth={})", prefix, task.data(), task.depth())
 /// }
 /// ```
 #[derive(Clone, Copy)]
@@ -152,9 +152,9 @@ impl<'a, R: Renderer> TaskView<'a, R> {
 ///
 /// ```rust,ignore
 /// fn render_event_line(
-///     &mut self, frame: &mut FrameWriter<'_>, event: &EventView<'_, Self>,
+///     &mut self, f: &mut FrameWriter<'_>, event: &EventView<'_, Self>,
 /// ) -> std::io::Result<()> {
-///     writeln!(frame, "{}> {}", " ".repeat(event.depth()), event.data())
+///     writeln!(f, "{}> {}", " ".repeat(event.depth()), event.data())
 /// }
 /// ```
 pub struct EventView<'a, R: Renderer> {

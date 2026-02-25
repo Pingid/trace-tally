@@ -28,21 +28,21 @@ impl Renderer for MyRenderer {
 
     fn render_task_line(
         &mut self,
-        frame: &mut FrameWriter<'_>,
+        f: &mut FrameWriter<'_>,
         task: &TaskView<'_, Self>,
     ) -> std::io::Result<()> {
         if task.completed() {
-            return writeln!(frame, "{}✓ {}", " ".repeat(task.depth()), task.data());
+            return writeln!(f, "{}✓ {}", " ".repeat(task.depth()), task.data());
         }
-        writeln!(frame, "{} {}", " ".repeat(task.depth()), task.data())
+        writeln!(f, "{} {}", " ".repeat(task.depth()), task.data())
     }
 
     fn render_event_line(
         &mut self,
-        frame: &mut FrameWriter<'_>,
+        f: &mut FrameWriter<'_>,
         event: &EventView<'_, Self>,
     ) -> std::io::Result<()> {
-        writeln!(frame, "{}  -> {}", " ".repeat(event.depth()), event.data())
+        writeln!(f, "{}  -> {}", " ".repeat(event.depth()), event.data())
     }
 }
 
@@ -112,16 +112,16 @@ Override [`Renderer::render_task`] to change how the task tree is walked. The de
 
 ```rust,ignore
 fn render_task(
-    &mut self, frame: &mut FrameWriter<'_>, task: &TaskView<'_, Self>,
+    &mut self, f: &mut FrameWriter<'_>, task: &TaskView<'_, Self>,
 ) -> Result<(), std::io::Error> {
-    self.render_task_line(frame, task)?;
+    self.render_task_line(f, task)?;
     if !task.completed() {
         for event in task.events().rev().take(3).rev() {
-            self.render_event_line(frame, &event)?;
+            self.render_event_line(f, &event)?;
         }
     }
     for subtask in task.subtasks() {
-        self.render_task(frame, &subtask)?;
+        self.render_task(f, &subtask)?;
     }
     Ok(())
 }

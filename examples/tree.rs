@@ -18,20 +18,20 @@ impl Renderer for TreeRenderer {
 
     fn render_task_line(
         &mut self,
-        frame: &mut FrameWriter<'_>,
+        f: &mut FrameWriter<'_>,
         task: &TaskView<'_, Self>,
     ) -> std::io::Result<()> {
         let prefix = TreeIndent::of(task);
         if task.completed() {
-            writeln!(frame, "{prefix}✓ {}", task.data())
+            writeln!(f, "{prefix}✓ {}", task.data())
         } else {
-            writeln!(frame, "{prefix}{}", task.data())
+            writeln!(f, "{prefix}{}", task.data())
         }
     }
 
     fn render_event_line(
         &mut self,
-        _frame: &mut FrameWriter<'_>,
+        _f: &mut FrameWriter<'_>,
         _event: &EventView<'_, Self>,
     ) -> std::io::Result<()> {
         Ok(()) // suppress events — tree structure is the focus

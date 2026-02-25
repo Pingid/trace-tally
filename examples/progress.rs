@@ -56,12 +56,12 @@ impl Renderer for MyRenderer {
 
     fn render_task_line(
         &mut self,
-        frame: &mut FrameWriter<'_>,
+        f: &mut FrameWriter<'_>,
         task: &TaskView<'_, Self>,
     ) -> std::io::Result<()> {
         let indent = " ".repeat(task.depth());
         if task.completed() {
-            return writeln!(frame, "{indent}✓ {}", task.data());
+            return writeln!(f, "{indent}✓ {}", task.data());
         }
 
         let spinner = self.spinner.frame();
@@ -73,44 +73,44 @@ impl Renderer for MyRenderer {
         });
         if let Some((done, total)) = progress {
             let bar = ProgressBar::new(done, total);
-            return writeln!(frame, "{indent}{spinner} {} {bar}", task.data());
+            return writeln!(f, "{indent}{spinner} {} {bar}", task.data());
         }
 
-        writeln!(frame, "{indent}{spinner} {}", task.data())
+        writeln!(f, "{indent}{spinner} {}", task.data())
     }
 
     // Override render_task to suppress event lines when a progress bar is shown.
     fn render_task(
         &mut self,
-        frame: &mut FrameWriter<'_>,
+        f: &mut FrameWriter<'_>,
         task: &TaskView<'_, Self>,
     ) -> std::io::Result<()> {
-        self.render_task_line(frame, task)?;
+        self.render_task_line(f, task)?;
         let has_progress = task
             .events()
             .last()
             .is_some_and(|e| e.data().progress.is_some());
         if !task.completed() && !has_progress {
             for event in task.events().rev().take(3).rev() {
-                self.render_event_line(frame, &event)?;
+                self.render_event_line(f, &event)?;
             }
         }
         for subtask in task.subtasks() {
-            self.render_task(frame, &subtask)?;
+            self.render_task(f, &subtask)?;
         }
         Ok(())
     }
 
     fn render_event_line(
         &mut self,
-        frame: &mut FrameWriter<'_>,
+        f: &mut FrameWriter<'_>,
         event: &EventView<'_, Self>,
     ) -> std::io::Result<()> {
         if event.is_root() {
-            writeln!(frame, "{}", event.data().message)
+            writeln!(f, "{}", event.data().message)
         } else {
             writeln!(
-                frame,
+                f,
                 "{}  -> {}",
                 " ".repeat(event.depth()),
                 event.data().message

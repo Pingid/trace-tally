@@ -28,25 +28,25 @@ impl Renderer for MyRenderer {
 
     fn render_task_line(
         &mut self,
-        frame: &mut FrameWriter<'_>,
+        f: &mut FrameWriter<'_>,
         task: &TaskView<'_, Self>,
     ) -> std::io::Result<()> {
         let indent = " ".repeat(task.depth());
         if task.completed() {
-            return writeln!(frame, "{indent}✓ {}", task.data());
+            return writeln!(f, "{indent}✓ {}", task.data());
         }
-        writeln!(frame, "{indent}{} {}", self.spinner.frame(), task.data())
+        writeln!(f, "{indent}{} {}", self.spinner.frame(), task.data())
     }
 
     fn render_event_line(
         &mut self,
-        frame: &mut FrameWriter<'_>,
+        f: &mut FrameWriter<'_>,
         event: &EventView<'_, Self>,
     ) -> std::io::Result<()> {
         if event.is_root() {
-            writeln!(frame, "{}", event.data())
+            writeln!(f, "{}", event.data())
         } else {
-            writeln!(frame, "{}  -> {}", " ".repeat(event.depth()), event.data())
+            writeln!(f, "{}  -> {}", " ".repeat(event.depth()), event.data())
         }
     }
 }

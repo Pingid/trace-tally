@@ -2,7 +2,7 @@
 ///
 /// ```rust,ignore
 /// let bar = ProgressBar::new(45, 100).width(30);
-/// writeln!(frame, "{} {bar}", task.data())?;
+/// writeln!(f, "{} {bar}", task.data())?;
 /// // => my_task [██████████████░░░░░░░░░░░░░░░░]  45%
 /// ```
 pub struct ProgressBar {

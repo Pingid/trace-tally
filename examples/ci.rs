@@ -64,13 +64,13 @@ impl Renderer for CiRenderer {
     // Dispatch to per-variant methods so each level controls its own subtree.
     fn render_task(
         &mut self,
-        frame: &mut FrameWriter<'_>,
+        f: &mut FrameWriter<'_>,
         task: &TaskView<'_, Self>,
     ) -> std::io::Result<()> {
         match task.data() {
-            TaskData::Pipeline { .. } => self.render_pipeline(frame, task),
-            TaskData::Stage { .. } => self.render_stage(frame, task),
-            TaskData::Step { .. } => self.render_step(frame, task),
+            TaskData::Pipeline { .. } => self.render_pipeline(f, task),
+            TaskData::Stage { .. } => self.render_stage(f, task),
+            TaskData::Step { .. } => self.render_step(f, task),
         }
     }
 }
@@ -78,26 +78,26 @@ impl Renderer for CiRenderer {
 impl CiRenderer {
     fn render_pipeline(
         &mut self,
-        frame: &mut FrameWriter<'_>,
+        f: &mut FrameWriter<'_>,
         task: &TaskView<'_, CiRenderer>,
     ) -> std::io::Result<()> {
         let TaskData::Pipeline { name } = task.data() else {
             return Ok(());
         };
         if task.completed() {
-            writeln!(frame, "{} {}", "✔".green().bold(), name.bold())?;
+            writeln!(f, "{} {}", "✔".green().bold(), name.bold())?;
         } else {
-            writeln!(frame, "{} {}", SPINNER[self.tick].magenta(), name.bold())?;
+            writeln!(f, "{} {}", SPINNER[self.tick].magenta(), name.bold())?;
         }
         for sub in task.subtasks() {
-            self.render_task(frame, &sub)?;
+            self.render_task(f, &sub)?;
         }
         Ok(())
     }
 
     fn render_stage(
         &mut self,
-        frame: &mut FrameWriter<'_>,
+        f: &mut FrameWriter<'_>,
         task: &TaskView<'_, CiRenderer>,
     ) -> std::io::Result<()> {
         let TaskData::Stage { name } = task.data() else {
@@ -108,17 +108,17 @@ impl CiRenderer {
         let label = format!("[{idx}/{TOTAL_STAGES}]");
         if task.completed() || task.cancelled() {
             // Completed stages collapse — no subtasks or events shown.
-            writeln!(frame, "  {} {} {name}", "✔".green(), label.dimmed())?;
+            writeln!(f, "  {} {} {name}", "✔".green(), label.dimmed())?;
         } else {
             writeln!(
-                frame,
+                f,
                 "  {} {} {}",
                 SPINNER[self.tick].magenta(),
                 label.dimmed(),
                 name.cyan(),
             )?;
             for sub in task.subtasks() {
-                self.render_task(frame, &sub)?;
+                self.render_task(f, &sub)?;
             }
         }
         Ok(())
@@ -126,27 +126,22 @@ impl CiRenderer {
 
     fn render_step(
         &mut self,
-        frame: &mut FrameWriter<'_>,
+        f: &mut FrameWriter<'_>,
         task: &TaskView<'_, CiRenderer>,
     ) -> std::io::Result<()> {
         let TaskData::Step { name } = task.data() else {
             return Ok(());
         };
         if task.completed() || task.cancelled() {
-            writeln!(frame, "    {} {name}", "✔".green().dimmed())?;
+            writeln!(f, "    {} {name}", "✔".green().dimmed())?;
         } else {
-            writeln!(
-                frame,
-                "    {} {}",
-                SPINNER[self.tick].magenta(),
-                name.dimmed()
-            )?;
+            writeln!(f, "    {} {}", SPINNER[self.tick].magenta(), name.dimmed())?;
             // Show last 3 events as a tail window (same pattern as tokio.rs).
             for event in task.events().rev().take(3).rev() {
-                self.render_event(frame, &event)?;
+                self.render_event(f, &event)?;
             }
             for sub in task.subtasks() {
-                self.render_task(frame, &sub)?;
+                self.render_task(f, &sub)?;
             }
         }
         Ok(())
@@ -154,16 +149,16 @@ impl CiRenderer {
 
     fn render_event(
         &mut self,
-        frame: &mut FrameWriter<'_>,
+        f: &mut FrameWriter<'_>,
         event: &EventView<'_, CiRenderer>,
     ) -> std::io::Result<()> {
         let data = event.data();
         let msg = &data.message;
         match data.level {
-            Level::Info => writeln!(frame, "      {} {}", "│".dimmed(), msg.dimmed()),
-            Level::Warn => writeln!(frame, "      {} {}", "│".yellow(), msg.yellow()),
-            Level::Error => writeln!(frame, "      {} {}", "│".red(), msg.red().bold()),
-            Level::Success => writeln!(frame, "      {} {}", "│".green(), msg.green()),
+            Level::Info => writeln!(f, "      {} {}", "│".dimmed(), msg.dimmed()),
+            Level::Warn => writeln!(f, "      {} {}", "│".yellow(), msg.yellow()),
+            Level::Error => writeln!(f, "      {} {}", "│".red(), msg.red().bold()),
+            Level::Success => writeln!(f, "      {} {}", "│".green(), msg.green()),
         }
     }
 }

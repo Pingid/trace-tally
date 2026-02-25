@@ -6,7 +6,7 @@
 //!
 //! ```rust,ignore
 //! let bar = ProgressBar::new(45, 100).width(30);
-//! writeln!(frame, "{} {bar}", task.data())?;
+//! writeln!(f, "{} {bar}", task.data())?;
 //! // => my_task [██████████████░░░░░░░░░░░░░░░░]  45%
 //!
 //! // Custom fill characters:
@@ -21,7 +21,7 @@
 //! ```rust,ignore
 //! let mut spinner = Spinner::dots(); // ⠋ ⠙ ⠹ ...
 //! spinner.tick();
-//! write!(frame, "{} working...", spinner.frame())?;
+//! write!(f, "{} working...", spinner.frame())?;
 //!
 //! // Other presets:
 //! let s = Spinner::line();  // | / - \
