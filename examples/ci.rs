@@ -84,10 +84,10 @@ impl CiRenderer {
         let TaskData::Pipeline { name } = task.data() else {
             return Ok(());
         };
-        if task.completed() {
-            writeln!(f, "{} {}", "✔".green().bold(), name.bold())?;
-        } else {
+        if task.active() {
             writeln!(f, "{} {}", SPINNER[self.tick].magenta(), name.bold())?;
+        } else {
+            writeln!(f, "{} {}", "✔".green().bold(), name.bold())?;
         }
         for sub in task.subtasks() {
             self.render_task(f, &sub)?;
@@ -106,7 +106,7 @@ impl CiRenderer {
         // task.index() gives position among siblings — used for "[1/7]" labels.
         let idx = task.index() + 1;
         let label = format!("[{idx}/{TOTAL_STAGES}]");
-        if task.completed() || task.cancelled() {
+        if !task.active() {
             // Completed stages collapse — no subtasks or events shown.
             writeln!(f, "  {} {} {name}", "✔".green(), label.dimmed())?;
         } else {
@@ -132,7 +132,7 @@ impl CiRenderer {
         let TaskData::Step { name } = task.data() else {
             return Ok(());
         };
-        if task.completed() || task.cancelled() {
+        if !task.active() {
             writeln!(f, "    {} {name}", "✔".green().dimmed())?;
         } else {
             writeln!(f, "    {} {}", SPINNER[self.tick].magenta(), name.dimmed())?;

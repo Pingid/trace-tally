@@ -1,14 +1,8 @@
-//! Synchronous inline rendering — the simplest way to use trace-tally.
-//!
-//! The inline layer renders on every tracing event with no render thread
-//! or channel needed. Shows the two core traits: [`Renderer`] and [`TraceMapper`].
-
 use std::io::Write;
 use trace_tally::*;
 
 // Define how to display spans and events
 struct MyRenderer;
-
 impl Renderer for MyRenderer {
     type EventData = String;
     type TaskData = String;
@@ -18,11 +12,11 @@ impl Renderer for MyRenderer {
         f: &mut FrameWriter<'_>,
         task: &TaskView<'_, Self>,
     ) -> std::io::Result<()> {
-        let indent = " ".repeat(task.depth());
+        write!(f, "{}", " ".repeat(task.depth()))?;
         if task.completed() {
-            return writeln!(f, "{indent}✓ {}", task.data());
+            write!(f, "✓ ")?;
         }
-        writeln!(f, "{indent} {}", task.data())
+        writeln!(f, "{}", task.data())
     }
 
     fn render_event_line(
@@ -45,7 +39,6 @@ impl TraceMapper for MyMapper {
         event.record(&mut MessageVisitor(&mut message));
         message
     }
-
     fn map_span(attrs: &tracing::span::Attributes<'_>) -> String {
         attrs.metadata().name().to_string()
     }
@@ -60,14 +53,19 @@ impl<'a> tracing::field::Visit for MessageVisitor<'a> {
     }
 }
 
+// Setup render loop
 fn main() {
     use tracing::{info, info_span};
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
 
+    // Create tracing subscriber layer
     let layer = MyMapper::inline_layer(MyRenderer, std::io::stderr());
+
+    // Setup tracing subscriber
     tracing_subscriber::registry().with(layer).init();
 
+    // Traced work
     let span = info_span!("my_task");
     span.in_scope(|| {
         info!("working...");

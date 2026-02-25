@@ -22,7 +22,7 @@ impl Renderer for TreeRenderer {
         task: &TaskView<'_, Self>,
     ) -> std::io::Result<()> {
         let prefix = TreeIndent::of(task);
-        if task.completed() {
+        if !task.active() {
             writeln!(f, "{prefix}✓ {}", task.data())
         } else {
             writeln!(f, "{prefix}{}", task.data())

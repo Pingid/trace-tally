@@ -62,7 +62,7 @@ impl<'a> Write for FrameWriter<'a> {
 /// fn render_task_line(
 ///     &mut self, f: &mut FrameWriter<'_>, task: &TaskView<'_, Self>,
 /// ) -> std::io::Result<()> {
-///     let prefix = if task.completed() { "done" } else { "..." };
+///     let prefix = if task.active() { ".." } else { "done" };
 ///     writeln!(f, "[{}] {} (depth={})", prefix, task.data(), task.depth())
 /// }
 /// ```
@@ -96,6 +96,11 @@ impl<'a, R: Renderer> TaskView<'a, R> {
     /// How long since this task started.
     pub fn elapsed(&self) -> Duration {
         self.tasks.task(&self.id).started_at.elapsed()
+    }
+
+    /// Returns `true` if the task is active (not completed or cancelled).
+    pub fn active(&self) -> bool {
+        !self.completed() && !self.cancelled()
     }
 
     /// Returns `true` if the task's span has closed.

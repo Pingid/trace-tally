@@ -31,10 +31,11 @@ impl Renderer for MyRenderer {
         f: &mut FrameWriter<'_>,
         task: &TaskView<'_, Self>,
     ) -> std::io::Result<()> {
+        write!(f, "{}", " ".repeat(task.depth()))?;
         if task.completed() {
-            return writeln!(f, "{}✓ {}", " ".repeat(task.depth()), task.data());
+            write!(f, "✓ ")?;
         }
-        writeln!(f, "{} {}", " ".repeat(task.depth()), task.data())
+        writeln!(f, "{}", task.data())
     }
 
     fn render_event_line(
@@ -115,7 +116,7 @@ fn render_task(
     &mut self, f: &mut FrameWriter<'_>, task: &TaskView<'_, Self>,
 ) -> Result<(), std::io::Error> {
     self.render_task_line(f, task)?;
-    if !task.completed() {
+    if task.active() {
         for event in task.events().rev().take(3).rev() {
             self.render_event_line(f, &event)?;
         }

@@ -91,12 +91,25 @@ impl<R: Renderer, W: Write> RenderLoop<R, W> {
         &self.renderer
     }
 
-    /// Run the loop until the source closes.
+    /// Run the loop until the source closes. Blocks the calling thread.
     ///
-    /// Blocks the calling thread. On shutdown:
-    /// 1. Drains any remaining actions.
-    /// 2. Optionally sends `CancelAll`.
-    /// 3. Renders one final frame.
+    /// Each cycle drains all buffered actions, renders a frame, then sleeps
+    /// for [`interval`](Self::interval). When the source closes, one final
+    /// drain + render occurs, preceded by [`Action::CancelAll`] if
+    /// [`cancel_on_close`](Self::cancel_on_close) is enabled.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// std::thread::spawn(move || {
+    ///     RenderLoop::new(MyRenderer::default(), std::io::stderr())
+    ///         .interval(Duration::from_millis(80))
+    ///         .run(rx);
+    /// });
+    ///
+    /// // Dropping all senders closes the channel and stops the loop.
+    /// drop(tx);
+    /// ```
     pub fn run(mut self, mut source: impl ActionSource<R>) {
         loop {
             let alive = source.drain_into(&mut self.renderer);
@@ -115,6 +128,28 @@ impl<R: Renderer, W: Write> RenderLoop<R, W> {
         }
     }
 
+    /// Like [`run`](Self::run), but also exits when `stop` returns `true`.
+    ///
+    /// The predicate is checked after each drain-and-render cycle,
+    /// so the final frame always reflects the latest actions.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use std::sync::Arc;
+    /// use std::sync::atomic::{AtomicBool, Ordering};
+    ///
+    /// let stop = Arc::new(AtomicBool::new(false));
+    /// let flag = stop.clone();
+    ///
+    /// std::thread::spawn(move || {
+    ///     RenderLoop::new(MyRenderer::default(), std::io::stderr())
+    ///         .run_until(rx, || flag.load(Ordering::Relaxed));
+    /// });
+    ///
+    /// // Later, signal the render loop to stop:
+    /// stop.store(true, Ordering::Relaxed);
+    /// ```
     pub fn run_until(mut self, mut source: impl ActionSource<R>, stop: impl Fn() -> bool) {
         loop {
             let alive = source.drain_into(&mut self.renderer);
@@ -130,6 +165,54 @@ impl<R: Renderer, W: Write> RenderLoop<R, W> {
         }
     }
 
+    /// Run the loop asynchronously.
+    ///
+    /// The `wait_fn` closure must return a future that resolves to `true` to
+    /// continue the loop, or `false` to abort immediately.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use tokio::sync::oneshot;
+    /// use std::time::Duration;
+    ///
+    /// let (cancel_tx, mut cancel_rx) = tokio::sync::watch::channel(false);
+    ///
+    /// render_loop.run_async(source, move |duration| {
+    ///     let mut rx = cancel_rx.clone();
+    ///     async move {
+    ///         tokio::select! {
+    ///             _ = tokio::time::sleep(duration) => true, // Normal tick, continue
+    ///             _ = rx.changed() => false,                // Cancelled, abort!
+    ///         }
+    ///     }
+    /// }).await;
+    /// ```
+    pub async fn run_async<S, D, F>(mut self, mut source: S, mut wait_fn: D)
+    where
+        S: ActionSource<R>,
+        D: FnMut(Duration) -> F,
+        F: Future<Output = bool>,
+    {
+        loop {
+            let alive = source.drain_into(&mut self.renderer);
+            let _ = self.renderer.render(&mut self.writer);
+
+            if !alive {
+                break;
+            }
+
+            if !wait_fn(self.interval).await {
+                break;
+            }
+        }
+
+        if self.cancel_on_close {
+            self.renderer.update(Action::CancelAll);
+            let _ = self.renderer.render(&mut self.writer);
+        }
+    }
+
     /// Run a single tick: drain + render. Returns `false` when the source
     /// has closed (but still renders that final drain).
     ///
@@ -139,44 +222,5 @@ impl<R: Renderer, W: Write> RenderLoop<R, W> {
         let alive = source.drain_into(&mut self.renderer);
         let _ = self.renderer.render(&mut self.writer);
         alive
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Convenience on TaskRenderer for async / custom loops
-// ---------------------------------------------------------------------------
-
-impl<R: Renderer> TaskRenderer<R> {
-    /// Drain all available actions from `source` and return whether it's
-    /// still alive.
-    ///
-    /// This is the building block for async render loops where you can't
-    /// use [`RenderLoop::run`] because you need `select!` or custom timing:
-    ///
-    /// ```rust,ignore
-    /// // In a tokio::select! loop:
-    /// loop {
-    ///     tokio::select! {
-    ///         _ = interval.tick() => {
-    ///             renderer.render(&mut stderr).unwrap();
-    ///         }
-    ///         action = rx.recv() => {
-    ///             match action {
-    ///                 Some(a) => {
-    ///                     renderer.update(a);
-    ///                     // drain remaining buffered actions
-    ///                     while let Ok(a) = rx.try_recv() {
-    ///                         renderer.update(a);
-    ///                     }
-    ///                     renderer.render(&mut stderr).unwrap();
-    ///                 }
-    ///                 None => break,
-    ///             }
-    ///         }
-    ///     }
-    /// }
-    /// ```
-    pub fn drain(&mut self, source: &mut impl ActionSource<R>) -> bool {
-        source.drain_into(self)
     }
 }

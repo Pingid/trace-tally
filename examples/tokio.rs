@@ -1,8 +1,8 @@
-//! Async channel rendering with tokio `select!` loop.
+//! Async channel rendering with [`RenderLoop::run_async`].
 //!
 //! Shows the canonical async setup: a [`ActionTransport`] newtype for tokio's
-//! `mpsc`, a `select!` loop with `interval.tick()` vs `rx.recv()`, and
-//! shutdown via oneshot. Copy this pattern for any tokio-based application.
+//! `mpsc`, an [`ActionSource`] impl for the receiver, and shutdown via
+//! oneshot. Copy this pattern for any tokio-based application.
 
 use std::io::Write;
 use std::time::Duration;
@@ -13,6 +13,7 @@ use trace_tally::*;
 
 // -- Renderer ----------------------------------------------------------------
 
+#[derive(Default)]
 struct MyRenderer {
     spinner: Spinner,
 }
@@ -31,7 +32,7 @@ impl Renderer for MyRenderer {
         task: &TaskView<'_, Self>,
     ) -> std::io::Result<()> {
         let indent = " ".repeat(task.depth());
-        if task.completed() {
+        if !task.active() {
             return writeln!(f, "{indent}✓ {}", task.data());
         }
         writeln!(f, "{indent}{} {}", self.spinner.frame(), task.data())
@@ -104,14 +105,33 @@ async fn main() {
     use tracing_subscriber::util::SubscriberInitExt;
 
     let (tx, rx) = mpsc::unbounded_channel();
-    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
+    // Create a tracing layer that sends actions to the tokio channel.
     let layer = Mapper::channel_layer::<MyRenderer, _>(TokioTransport(tx))
         .with_error_handler(|e| eprintln!("transport error: {e}"));
-
     tracing_subscriber::registry().with(layer).init();
 
-    let render_handle = tokio::spawn(render_loop(rx, shutdown_rx));
+    // Create a oneshot channel to signal the render loop to stop.
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+
+    // Create a renderer.
+    let renderer = MyRenderer::default();
+
+    // Create a render loop that runs asynchronously.
+    let render_handle = tokio::spawn(
+        RenderLoop::new(renderer, std::io::stderr())
+            .interval(Duration::from_millis(80))
+            .cancel_on_close(true)
+            .run_async(rx, move |dur| {
+                let mut tick_rx = shutdown_rx.clone();
+                async move {
+                    tokio::select! {
+                        _ = tokio::time::sleep(dur) => true,
+                        _ = tick_rx.changed() => false,
+                    }
+                }
+            }),
+    );
 
     // Simulation: concurrent async tasks.
     info!("starting pipeline");
@@ -141,38 +161,19 @@ async fn main() {
 
     info!("pipeline complete");
 
-    let _ = shutdown_tx.send(());
+    let _ = shutdown_tx.send(true);
     render_handle.await.unwrap();
 }
 
-// Async render loop: drain on action, repaint on interval, exit on shutdown.
-async fn render_loop(
-    mut rx: mpsc::UnboundedReceiver<Action<MyRenderer>>,
-    mut shutdown: tokio::sync::oneshot::Receiver<()>,
-) {
-    let mut renderer = TaskRenderer::new(MyRenderer {
-        spinner: Spinner::dots(),
-    });
-    let mut interval = tokio::time::interval(Duration::from_millis(80));
-
-    loop {
-        tokio::select! {
-            _ = interval.tick() => {
-                renderer.render(&mut std::io::stderr()).unwrap();
+// ActionSource impl for tokio's unbounded receiver.
+impl ActionSource<MyRenderer> for mpsc::UnboundedReceiver<Action<MyRenderer>> {
+    fn drain_into(&mut self, renderer: &mut TaskRenderer<MyRenderer>) -> bool {
+        loop {
+            match self.try_recv() {
+                Ok(action) => renderer.update(action),
+                Err(mpsc::error::TryRecvError::Empty) => return true,
+                Err(mpsc::error::TryRecvError::Disconnected) => return false,
             }
-            action = rx.recv() => {
-                match action {
-                    Some(action) => {
-                        renderer.update(action);
-                        while let Ok(action) = rx.try_recv() {
-                            renderer.update(action);
-                        }
-                        renderer.render(&mut std::io::stderr()).unwrap();
-                    }
-                    None => break,
-                }
-            }
-            _ = &mut shutdown => break,
         }
     }
 }

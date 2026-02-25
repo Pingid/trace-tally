@@ -32,7 +32,7 @@ impl Renderer for MyRenderer {
         task: &TaskView<'_, Self>,
     ) -> std::io::Result<()> {
         let indent = " ".repeat(task.depth());
-        if task.completed() {
+        if !task.active() {
             return writeln!(f, "{indent}✓ {}", task.data());
         }
         writeln!(f, "{indent}{} {}", self.spinner.frame(), task.data())

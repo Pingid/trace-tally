@@ -87,7 +87,7 @@ pub trait Renderer: Sized {
         task: &TaskView<'_, Self>,
     ) -> Result<(), std::io::Error> {
         self.render_task_line(f, task)?;
-        if !task.completed() {
+        if task.active() {
             for event in task.events().rev().take(3).rev() {
                 self.render_event_line(f, &event)?;
             }

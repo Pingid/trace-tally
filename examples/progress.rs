@@ -60,7 +60,7 @@ impl Renderer for MyRenderer {
         task: &TaskView<'_, Self>,
     ) -> std::io::Result<()> {
         let indent = " ".repeat(task.depth());
-        if task.completed() {
+        if !task.active() {
             return writeln!(f, "{indent}✓ {}", task.data());
         }
 
@@ -90,7 +90,7 @@ impl Renderer for MyRenderer {
             .events()
             .last()
             .is_some_and(|e| e.data().progress.is_some());
-        if !task.completed() && !has_progress {
+        if task.active() && !has_progress {
             for event in task.events().rev().take(3).rev() {
                 self.render_event_line(f, &event)?;
             }
