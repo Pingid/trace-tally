@@ -14,7 +14,6 @@ mod test;
 
 /// Re-exports of all public types and traits.
 pub mod prelude {
-    pub use crate::Renderer;
     pub use crate::runner::{ActionSource, RenderLoop};
     pub use crate::task::TaskId;
     #[cfg(feature = "tracing")]
@@ -22,6 +21,7 @@ pub mod prelude {
     pub use crate::view::{EventView, FrameWriter, TaskView};
     pub use crate::widgets::*;
     pub use crate::writer::TaskRenderer;
+    pub use crate::{Action, Renderer};
 }
 
 pub use crate::prelude::*;
