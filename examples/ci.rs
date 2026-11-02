@@ -64,8 +64,8 @@ impl Renderer for CiRenderer {
     // Dispatch to per-variant methods so each level controls its own subtree.
     fn render_task(
         &mut self,
-        f: &mut FrameWriter<'_>,
-        task: &TaskView<'_, Self>,
+        f: &mut Frame<'_>,
+        task: &TaskView<'_, TaskData, EventData>,
     ) -> std::io::Result<()> {
         match task.data() {
             TaskData::Pipeline { .. } => self.render_pipeline(f, task),
@@ -78,8 +78,8 @@ impl Renderer for CiRenderer {
 impl CiRenderer {
     fn render_pipeline(
         &mut self,
-        f: &mut FrameWriter<'_>,
-        task: &TaskView<'_, CiRenderer>,
+        f: &mut Frame<'_>,
+        task: &TaskView<'_, TaskData, EventData>,
     ) -> std::io::Result<()> {
         let TaskData::Pipeline { name } = task.data() else {
             return Ok(());
@@ -97,8 +97,8 @@ impl CiRenderer {
 
     fn render_stage(
         &mut self,
-        f: &mut FrameWriter<'_>,
-        task: &TaskView<'_, CiRenderer>,
+        f: &mut Frame<'_>,
+        task: &TaskView<'_, TaskData, EventData>,
     ) -> std::io::Result<()> {
         let TaskData::Stage { name } = task.data() else {
             return Ok(());
@@ -126,8 +126,8 @@ impl CiRenderer {
 
     fn render_step(
         &mut self,
-        f: &mut FrameWriter<'_>,
-        task: &TaskView<'_, CiRenderer>,
+        f: &mut Frame<'_>,
+        task: &TaskView<'_, TaskData, EventData>,
     ) -> std::io::Result<()> {
         let TaskData::Step { name } = task.data() else {
             return Ok(());
@@ -149,8 +149,8 @@ impl CiRenderer {
 
     fn render_event(
         &mut self,
-        f: &mut FrameWriter<'_>,
-        event: &EventView<'_, CiRenderer>,
+        f: &mut Frame<'_>,
+        event: &EventView<'_, TaskData, EventData>,
     ) -> std::io::Result<()> {
         let data = event.data();
         let msg = &data.message;
@@ -172,7 +172,7 @@ impl TraceMapper for Mapper {
     type TaskData = TaskData;
 
     // Dispatch on "kind" field to determine which TaskData variant to create.
-    fn map_span(attrs: &tracing::span::Attributes<'_>) -> TaskData {
+    fn map_span(&self, attrs: &tracing::span::Attributes<'_>) -> TaskData {
         let mut v = FieldVisitor::default();
         attrs.record(&mut v);
         let name = v
@@ -186,7 +186,7 @@ impl TraceMapper for Mapper {
     }
 
     // Maps the "level" string field to a typed Level enum for colored rendering.
-    fn map_event(event: &tracing::Event<'_>) -> EventData {
+    fn map_event(&self, event: &tracing::Event<'_>) -> EventData {
         let mut v = FieldVisitor::default();
         event.record(&mut v);
         let level = match v.level.as_deref() {
@@ -227,17 +227,6 @@ impl tracing::field::Visit for FieldVisitor {
     }
 }
 
-// ── Transport ────────────────────────────────────────────────────
-
-struct Transport(mpsc::UnboundedSender<Action<CiRenderer>>);
-
-impl ActionTransport<CiRenderer> for Transport {
-    type Error = mpsc::error::SendError<Action<CiRenderer>>;
-    fn send_action(&self, action: Action<CiRenderer>) -> Result<(), Self::Error> {
-        self.0.send(action)
-    }
-}
-
 // ── Main ─────────────────────────────────────────────────────────
 
 #[tokio::main]
@@ -245,8 +234,9 @@ async fn main() {
     let (tx, rx) = mpsc::unbounded_channel();
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
-    let layer = Mapper::channel_layer::<CiRenderer, _>(Transport(tx))
-        .with_error_handler(|e| eprintln!("transport error: {e}"));
+    let layer = Mapper.layer(move |action| {
+        let _ = tx.send(action);
+    });
 
     tracing_subscriber::registry().with(layer).init();
 
@@ -263,7 +253,7 @@ async fn main() {
 
 /// Same drain-then-render pattern as the other async examples.
 async fn render_loop(
-    mut rx: mpsc::UnboundedReceiver<Action<CiRenderer>>,
+    mut rx: mpsc::UnboundedReceiver<ActionOf<CiRenderer>>,
     mut shutdown: tokio::sync::oneshot::Receiver<()>,
 ) {
     let mut renderer = TaskRenderer::new(CiRenderer::default());

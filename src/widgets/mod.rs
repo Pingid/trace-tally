@@ -36,7 +36,7 @@
 //! [`TreeIndent`] produces box-drawing prefixes for hierarchical task trees:
 //!
 //! ```rust,ignore
-//! fn render_task_line(&mut self, f: &mut FrameWriter<'_>, task: &TaskView<'_, Self>) -> io::Result<()> {
+//! fn render_task_line(&mut self, f: &mut Frame<'_>, task: &TaskView<'_, String, String>) -> io::Result<()> {
 //!     write!(f, "{}", TreeIndent::of(task))?;
 //!     writeln!(f, "{}", task.data())
 //! }

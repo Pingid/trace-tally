@@ -12,7 +12,7 @@
 ///     // ...
 ///     fn on_render_start(&mut self) { self.spinner.tick(); }
 ///
-///     fn render_task_line(&mut self, f: &mut FrameWriter<'_>, task: &TaskView<'_, Self>) -> io::Result<()> {
+///     fn render_task_line(&mut self, f: &mut Frame<'_>, task: &TaskView<'_, String, String>) -> io::Result<()> {
 ///         if task.active() {
 ///             write!(f, "{} ", self.spinner)?;
 ///         }

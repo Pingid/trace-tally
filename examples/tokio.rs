@@ -1,8 +1,8 @@
 //! Async channel rendering with [`RenderLoop::run_async`].
 //!
-//! Shows the canonical async setup: a [`ActionTransport`] newtype for tokio's
-//! `mpsc`, an [`ActionSource`] impl for the receiver, and shutdown via
-//! oneshot. Copy this pattern for any tokio-based application.
+//! Shows the canonical async setup: closures as the [`ActionSink`] and
+//! [`ActionSource`] for tokio's `mpsc`, and shutdown via a watch channel.
+//! Copy this pattern for any tokio-based application.
 
 use std::io::Write;
 use std::time::Duration;
@@ -28,8 +28,8 @@ impl Renderer for MyRenderer {
 
     fn render_task_line(
         &mut self,
-        f: &mut FrameWriter<'_>,
-        task: &TaskView<'_, Self>,
+        f: &mut Frame<'_>,
+        task: &TaskView<'_, String, String>,
     ) -> std::io::Result<()> {
         let indent = " ".repeat(task.depth());
         if !task.active() {
@@ -40,8 +40,8 @@ impl Renderer for MyRenderer {
 
     fn render_event_line(
         &mut self,
-        f: &mut FrameWriter<'_>,
-        event: &EventView<'_, Self>,
+        f: &mut Frame<'_>,
+        event: &EventView<'_, String, String>,
     ) -> std::io::Result<()> {
         if event.is_root() {
             writeln!(f, "{}", event.data())
@@ -59,13 +59,13 @@ impl TraceMapper for Mapper {
     type EventData = String;
     type TaskData = String;
 
-    fn map_event(event: &tracing::Event<'_>) -> String {
+    fn map_event(&self, event: &tracing::Event<'_>) -> String {
         let mut message = String::new();
         event.record(&mut MessageVisitor(&mut message));
         message
     }
 
-    fn map_span(attrs: &tracing::span::Attributes<'_>) -> String {
+    fn map_span(&self, attrs: &tracing::span::Attributes<'_>) -> String {
         let mut message = String::new();
         attrs.record(&mut MessageVisitor(&mut message));
         let name = attrs.metadata().name();
@@ -83,19 +83,6 @@ impl<'a> tracing::field::Visit for MessageVisitor<'a> {
     }
 }
 
-// -- Tokio transport ---------------------------------------------------------
-
-// The orphan rule prevents implementing ActionTransport on tokio's Sender
-// directly, so wrap it in a newtype.
-struct TokioTransport(mpsc::UnboundedSender<Action<MyRenderer>>);
-
-impl ActionTransport<MyRenderer> for TokioTransport {
-    type Error = mpsc::error::SendError<Action<MyRenderer>>;
-    fn send_action(&self, action: Action<MyRenderer>) -> Result<(), Self::Error> {
-        self.0.send(action)
-    }
-}
-
 // -- Main --------------------------------------------------------------------
 
 #[tokio::main]
@@ -104,11 +91,14 @@ async fn main() {
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
 
-    let (tx, rx) = mpsc::unbounded_channel();
+    let (tx, mut rx) = mpsc::unbounded_channel();
 
-    // Create a tracing layer that sends actions to the tokio channel.
-    let layer = Mapper::channel_layer::<MyRenderer, _>(TokioTransport(tx))
-        .with_error_handler(|e| eprintln!("transport error: {e}"));
+    // Any closure works as a sink, so tokio's sender needs no wrapper.
+    let layer = Mapper.layer(move |action| {
+        if let Err(e) = tx.send(action) {
+            eprintln!("render loop gone: {e}");
+        }
+    });
     tracing_subscriber::registry().with(layer).init();
 
     // Create a oneshot channel to signal the render loop to stop.
@@ -117,12 +107,21 @@ async fn main() {
     // Create a renderer.
     let renderer = MyRenderer::default();
 
+    // Any `FnMut(&mut TaskTree) -> bool` closure is an ActionSource.
+    let source = move |tree: &mut TaskTree<String, String>| loop {
+        match rx.try_recv() {
+            Ok(action) => tree.apply(action),
+            Err(mpsc::error::TryRecvError::Empty) => return true,
+            Err(mpsc::error::TryRecvError::Disconnected) => return false,
+        }
+    };
+
     // Create a render loop that runs asynchronously.
     let render_handle = tokio::spawn(
         RenderLoop::new(renderer, std::io::stderr())
             .interval(Duration::from_millis(80))
             .cancel_on_close(true)
-            .run_async(rx, move |dur| {
+            .run_async(source, move |dur| {
                 let mut tick_rx = shutdown_rx.clone();
                 async move {
                     tokio::select! {
@@ -163,19 +162,6 @@ async fn main() {
 
     let _ = shutdown_tx.send(true);
     render_handle.await.unwrap();
-}
-
-// ActionSource impl for tokio's unbounded receiver.
-impl ActionSource<MyRenderer> for mpsc::UnboundedReceiver<Action<MyRenderer>> {
-    fn drain_into(&mut self, renderer: &mut TaskRenderer<MyRenderer>) -> bool {
-        loop {
-            match self.try_recv() {
-                Ok(action) => renderer.update(action),
-                Err(mpsc::error::TryRecvError::Empty) => return true,
-                Err(mpsc::error::TryRecvError::Disconnected) => return false,
-            }
-        }
-    }
 }
 
 async fn sleep(ms: u64) {

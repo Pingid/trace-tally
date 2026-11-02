@@ -1,4 +1,4 @@
-use crate::{Renderer, TaskView};
+use crate::TaskView;
 
 /// Renders tree-drawing characters for a task's position in the hierarchy.
 ///
@@ -11,7 +11,7 @@ use crate::{Renderer, TaskView};
 /// ```
 ///
 /// ```rust,ignore
-/// fn render_task_line(&mut self, f: &mut FrameWriter<'_>, task: &TaskView<'_, Self>) -> io::Result<()> {
+/// fn render_task_line(&mut self, f: &mut Frame<'_>, task: &TaskView<'_, String, String>) -> io::Result<()> {
 ///     write!(f, "{}", TreeIndent::of(task))?;
 ///     writeln!(f, "{}", task.data())
 /// }
@@ -19,29 +19,13 @@ use crate::{Renderer, TaskView};
 pub struct TreeIndent(String);
 
 impl TreeIndent {
-    pub fn of<R: Renderer>(task: &TaskView<'_, R>) -> Self {
-        if task.depth() == 0 {
-            return Self(String::new());
-        }
-
-        // Walk up the tree by TaskId to avoid borrow conflicts.
+    pub fn of<T, E>(task: &TaskView<'_, T, E>) -> Self {
         // At each level, record whether the node is the last sibling.
         let mut segments: Vec<bool> = Vec::with_capacity(task.depth());
-        let mut current_id = task.id();
-
-        loop {
-            let current = task.view(current_id);
-            match current.parent() {
-                Some(parent) => {
-                    let is_last = current.index() == parent.subtasks().len() - 1;
-                    segments.push(is_last);
-                    if parent.depth() == 0 {
-                        break;
-                    }
-                    current_id = parent.id();
-                }
-                None => break,
-            }
+        let mut current = Some(*task);
+        while let Some(t) = current {
+            segments.push(t.is_last());
+            current = t.parent();
         }
 
         segments.reverse();

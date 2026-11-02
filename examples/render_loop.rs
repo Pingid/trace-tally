@@ -28,8 +28,8 @@ impl Renderer for MyRenderer {
 
     fn render_task_line(
         &mut self,
-        f: &mut FrameWriter<'_>,
-        task: &TaskView<'_, Self>,
+        f: &mut Frame<'_>,
+        task: &TaskView<'_, String, String>,
     ) -> std::io::Result<()> {
         let indent = " ".repeat(task.depth());
         if !task.active() {
@@ -40,8 +40,8 @@ impl Renderer for MyRenderer {
 
     fn render_event_line(
         &mut self,
-        f: &mut FrameWriter<'_>,
-        event: &EventView<'_, Self>,
+        f: &mut Frame<'_>,
+        event: &EventView<'_, String, String>,
     ) -> std::io::Result<()> {
         if event.is_root() {
             writeln!(f, "{}", event.data())
@@ -59,13 +59,13 @@ impl TraceMapper for Mapper {
     type EventData = String;
     type TaskData = String;
 
-    fn map_event(event: &tracing::Event<'_>) -> String {
+    fn map_event(&self, event: &tracing::Event<'_>) -> String {
         let mut message = String::new();
         event.record(&mut MessageVisitor(&mut message));
         message
     }
 
-    fn map_span(attrs: &tracing::span::Attributes<'_>) -> String {
+    fn map_span(&self, attrs: &tracing::span::Attributes<'_>) -> String {
         let mut message = String::new();
         attrs.record(&mut MessageVisitor(&mut message));
         let name = attrs.metadata().name();
@@ -92,8 +92,7 @@ fn main() {
 
     let (tx, rx) = mpsc::channel();
 
-    let layer = Mapper::channel_layer::<MyRenderer, _>(tx)
-        .with_error_handler(|e| eprintln!("transport error: {e}"));
+    let layer = Mapper.layer(tx);
 
     tracing_subscriber::registry().with(layer).init();
     let stop = Arc::new(AtomicBool::new(false));

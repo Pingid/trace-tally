@@ -9,8 +9,8 @@ impl Renderer for MyRenderer {
 
     fn render_task_line(
         &mut self,
-        f: &mut FrameWriter<'_>,
-        task: &TaskView<'_, Self>,
+        f: &mut Frame<'_>,
+        task: &TaskView<'_, String, String>,
     ) -> std::io::Result<()> {
         write!(f, "{}", " ".repeat(task.depth()))?;
         if task.completed() {
@@ -21,8 +21,8 @@ impl Renderer for MyRenderer {
 
     fn render_event_line(
         &mut self,
-        f: &mut FrameWriter<'_>,
-        event: &EventView<'_, Self>,
+        f: &mut Frame<'_>,
+        event: &EventView<'_, String, String>,
     ) -> std::io::Result<()> {
         writeln!(f, "{}  -> {}", " ".repeat(event.depth()), event.data())
     }
@@ -34,12 +34,12 @@ impl TraceMapper for MyMapper {
     type EventData = String;
     type TaskData = String;
 
-    fn map_event(event: &tracing::Event<'_>) -> String {
+    fn map_event(&self, event: &tracing::Event<'_>) -> String {
         let mut message = String::new();
         event.record(&mut MessageVisitor(&mut message));
         message
     }
-    fn map_span(attrs: &tracing::span::Attributes<'_>) -> String {
+    fn map_span(&self, attrs: &tracing::span::Attributes<'_>) -> String {
         attrs.metadata().name().to_string()
     }
 }
@@ -60,7 +60,7 @@ fn main() {
     use tracing_subscriber::util::SubscriberInitExt;
 
     // Create tracing subscriber layer
-    let layer = MyMapper::inline_layer(MyRenderer, std::io::stderr());
+    let layer = MyMapper.inline_layer(MyRenderer, std::io::stderr());
 
     // Setup tracing subscriber
     tracing_subscriber::registry().with(layer).init();

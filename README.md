@@ -28,8 +28,8 @@ impl Renderer for MyRenderer {
 
     fn render_task_line(
         &mut self,
-        f: &mut FrameWriter<'_>,
-        task: &TaskView<'_, Self>,
+        f: &mut Frame<'_>,
+        task: &TaskView<'_, String, String>,
     ) -> std::io::Result<()> {
         write!(f, "{}", " ".repeat(task.depth()))?;
         if task.completed() {
@@ -40,8 +40,8 @@ impl Renderer for MyRenderer {
 
     fn render_event_line(
         &mut self,
-        f: &mut FrameWriter<'_>,
-        event: &EventView<'_, Self>,
+        f: &mut Frame<'_>,
+        event: &EventView<'_, String, String>,
     ) -> std::io::Result<()> {
         writeln!(f, "{}  -> {}", " ".repeat(event.depth()), event.data())
     }
@@ -53,12 +53,12 @@ impl TraceMapper for MyMapper {
     type EventData = String;
     type TaskData = String;
 
-    fn map_event(event: &tracing::Event<'_>) -> String {
+    fn map_event(&self, event: &tracing::Event<'_>) -> String {
         let mut message = String::new();
         event.record(&mut MessageVisitor(&mut message));
         message
     }
-    fn map_span(attrs: &tracing::span::Attributes<'_>) -> String {
+    fn map_span(&self, attrs: &tracing::span::Attributes<'_>) -> String {
         attrs.metadata().name().to_string()
     }
 }
@@ -79,7 +79,7 @@ fn main() {
     use tracing_subscriber::util::SubscriberInitExt;
 
     // Create tracing subscriber layer
-    let layer = MyMapper::inline_layer(MyRenderer, std::io::stderr());
+    let layer = MyMapper.inline_layer(MyRenderer, std::io::stderr());
 
     // Setup tracing subscriber
     tracing_subscriber::registry().with(layer).init();
@@ -94,27 +94,41 @@ fn main() {
 }
 ```
 
-## Channel vs Inline
+## Architecture
 
-trace-tally provides two layer constructors:
+The crate is split into three independent layers, each usable on its own:
 
-- **[`inline_layer`]** renders synchronously on every span/event. No background thread needed. Best for short-lived CLI tools where simplicity matters.
-- **[`channel_layer`]** sends actions over an `mpsc` channel to a separate render loop. This decouples tracing from rendering, enabling timed redraws and spinner animations.
+```text
+ TaskLayer ──Action<T, E>──▶ ActionSink ──▶ TaskTree<T, E> ──TaskView──▶ Renderer ──▶ Frame
+ (capture)                  (transport)       (model)                    (draw)       (output)
+```
 
-The complete example above uses [`inline_layer`]. See [`examples/render_loop.rs`](./examples/render_loop.rs) for a [`channel_layer`] setup with animated output.
+- [`model`]: [`Action`], [`TaskTree`], [`TaskView`] and [`EventView`]. Plain data, generic over your task data `T` and event data `E`, with no dependency on `tracing` or rendering.
+- [`layer`]: [`TaskLayer`] maps spans and events with a [`TraceMapper`] and hands [`Action`]s to any [`ActionSink`].
+- [`render`]: the [`Renderer`] trait, [`LiveRegion`] for erasable inline terminal output, [`TaskRenderer`] which combines the two with a tree, and [`RenderLoop`].
 
-Both require that the `TraceMapper` associated types match the `Renderer` associated types (`TaskData` and `EventData`). A mismatch produces a compile error on the [`inline_layer`] / [`channel_layer`] call.
+## Delivering actions
 
-[`channel_layer`] accepts any [`ActionTransport`] implementation, not just [`std::sync::mpsc::Sender`]. Implement [`ActionTransport`] to use crossbeam, tokio, or other channel backends.
+[`TaskLayer::new`] takes any [`ActionSink`]. These are implemented out of the box:
+
+- **Closures**: `TaskLayer::new(MyMapper, |action| ...)` covers tokio, crossbeam, flume, a test `Vec`, or anything else.
+- **[`std::sync::mpsc::Sender`]**: `MyMapper.layer(tx)`, paired with a [`RenderLoop`] on another thread. This decouples tracing from rendering and enables timed redraws and spinner animations. See [`examples/render_loop.rs`](./examples/render_loop.rs).
+- **[`InlineSink`]**: `MyMapper.inline_layer(renderer, writer)` renders synchronously on every span and event, with no background thread. Best for short-lived CLI tools.
+
+Rendering is optional. To use the tree with another backend (ratatui, a web view, snapshot tests), apply actions to a [`TaskTree`] yourself and read it through [`TaskView`]s.
+
+## Updating tasks
+
+Implement [`TraceMapper::map_record`] to update task data when fields are recorded on an open span (`span.record("progress", 42)`). The layer emits [`Action::TaskUpdate`] with the new data.
 
 ## Customizing Rendering
 
-Override [`Renderer::render_task`] to change how the task tree is walked. The default renders the task line, then buffered events (skipped for completed tasks), then recurses into subtasks:
+Override [`Renderer::render_task`] to change how the task tree is walked. The default renders the task line, then buffered events (skipped for inactive tasks), then recurses into subtasks:
 
 ```rust,ignore
 fn render_task(
-    &mut self, f: &mut FrameWriter<'_>, task: &TaskView<'_, Self>,
-) -> Result<(), std::io::Error> {
+    &mut self, f: &mut Frame<'_>, task: &TaskView<'_, String, String>,
+) -> std::io::Result<()> {
     self.render_task_line(f, task)?;
     if task.active() {
         for event in task.events().rev().take(3).rev() {
@@ -128,14 +142,19 @@ fn render_task(
 }
 ```
 
+Set [`TaskRenderer::width`] to the terminal width so lines that soft-wrap are erased correctly between frames.
+
 ## API
 
-| Type                         | Role                                                                           |
-| ---------------------------- | ------------------------------------------------------------------------------ |
-| [`Renderer`]                 | Trait — define `TaskData`/`EventData` types and rendering callbacks.           |
-| [`TraceMapper`]              | Trait — extract custom data from tracing spans and events.                     |
-| [`TaskRenderer`]             | Receives `Action`s, manages the task tree state, and drives rendering.         |
-| [`FrameWriter`]              | Terminal writer with ANSI cursor control for frame clearing.                   |
-| [`TaskView`] / [`EventView`] | Read-only views passed to renderer callbacks to access underlying data.        |
-| [`Action`]                   | Enum representing state changes: `TaskStart`, `Event`, `TaskEnd`, `CancelAll`. |
-| [`ActionTransport`]          | Trait for channel backends — implemented for `mpsc::Sender` by default.        |
+| Type                         | Role                                                                                   |
+| ---------------------------- | -------------------------------------------------------------------------------------- |
+| [`Action`]                   | State changes: `TaskStart`, `TaskUpdate`, `Event`, `TaskEnd`, `CancelAll`.             |
+| [`TaskTree`]                 | Applies actions and holds the task hierarchy.                                          |
+| [`TaskView`] / [`EventView`] | Read-only views into the tree.                                                         |
+| [`TraceMapper`]              | Trait: extract custom data from tracing spans and events.                              |
+| [`TaskLayer`]                | The `tracing` layer; delivers actions to an [`ActionSink`].                            |
+| [`ActionSink`]               | Where the layer sends actions: closures, `mpsc::Sender`, [`InlineSink`].               |
+| [`Renderer`]                 | Trait: rendering callbacks for tasks and events.                                       |
+| [`TaskRenderer`]             | Combines a tree, a renderer and a [`LiveRegion`] into an inline terminal display.      |
+| [`LiveRegion`] / [`Frame`]   | Erasable inline terminal region and the writer passed to renderer callbacks.           |
+| [`RenderLoop`]               | Drains an [`ActionSource`] and repaints on an interval (sync or async).                |

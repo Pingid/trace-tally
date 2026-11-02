@@ -18,8 +18,8 @@ impl Renderer for TreeRenderer {
 
     fn render_task_line(
         &mut self,
-        f: &mut FrameWriter<'_>,
-        task: &TaskView<'_, Self>,
+        f: &mut Frame<'_>,
+        task: &TaskView<'_, String, String>,
     ) -> std::io::Result<()> {
         let prefix = TreeIndent::of(task);
         if !task.active() {
@@ -31,8 +31,8 @@ impl Renderer for TreeRenderer {
 
     fn render_event_line(
         &mut self,
-        _f: &mut FrameWriter<'_>,
-        _event: &EventView<'_, Self>,
+        _f: &mut Frame<'_>,
+        _event: &EventView<'_, String, String>,
     ) -> std::io::Result<()> {
         Ok(()) // suppress events — tree structure is the focus
     }
@@ -46,13 +46,13 @@ impl TraceMapper for Mapper {
     type EventData = String;
     type TaskData = String;
 
-    fn map_event(event: &tracing::Event<'_>) -> String {
+    fn map_event(&self, event: &tracing::Event<'_>) -> String {
         let mut msg = String::new();
         event.record(&mut MessageVisitor(&mut msg));
         msg
     }
 
-    fn map_span(attrs: &tracing::span::Attributes<'_>) -> String {
+    fn map_span(&self, attrs: &tracing::span::Attributes<'_>) -> String {
         let mut msg = String::new();
         attrs.record(&mut MessageVisitor(&mut msg));
         match msg.is_empty() {
@@ -79,7 +79,7 @@ fn main() {
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
 
-    let layer = Mapper::inline_layer(TreeRenderer, std::io::stderr());
+    let layer = Mapper.inline_layer(TreeRenderer, std::io::stderr());
     tracing_subscriber::registry().with(layer).init();
 
     // Simulate a test suite with hierarchical spans.

@@ -56,8 +56,8 @@ impl Renderer for MyRenderer {
 
     fn render_task_line(
         &mut self,
-        f: &mut FrameWriter<'_>,
-        task: &TaskView<'_, Self>,
+        f: &mut Frame<'_>,
+        task: &TaskView<'_, String, Event>,
     ) -> std::io::Result<()> {
         let indent = " ".repeat(task.depth());
         if !task.active() {
@@ -82,8 +82,8 @@ impl Renderer for MyRenderer {
     // Override render_task to suppress event lines when a progress bar is shown.
     fn render_task(
         &mut self,
-        f: &mut FrameWriter<'_>,
-        task: &TaskView<'_, Self>,
+        f: &mut Frame<'_>,
+        task: &TaskView<'_, String, Event>,
     ) -> std::io::Result<()> {
         self.render_task_line(f, task)?;
         let has_progress = task
@@ -103,8 +103,8 @@ impl Renderer for MyRenderer {
 
     fn render_event_line(
         &mut self,
-        f: &mut FrameWriter<'_>,
-        event: &EventView<'_, Self>,
+        f: &mut Frame<'_>,
+        event: &EventView<'_, String, Event>,
     ) -> std::io::Result<()> {
         if event.is_root() {
             writeln!(f, "{}", event.data().message)
@@ -127,7 +127,7 @@ impl TraceMapper for Mapper {
     type EventData = Event;
     type TaskData = String;
 
-    fn map_event(event: &tracing::Event<'_>) -> Event {
+    fn map_event(&self, event: &tracing::Event<'_>) -> Event {
         let mut visitor = FieldVisitor::default();
         event.record(&mut visitor);
         match (visitor.done, visitor.total) {
@@ -136,7 +136,7 @@ impl TraceMapper for Mapper {
         }
     }
 
-    fn map_span(attrs: &tracing::span::Attributes<'_>) -> String {
+    fn map_span(&self, attrs: &tracing::span::Attributes<'_>) -> String {
         let mut visitor = FieldVisitor::default();
         attrs.record(&mut visitor);
         match visitor.message {
@@ -197,11 +197,10 @@ async fn main() {
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
 
-    // std::sync::mpsc implements ActionTransport, so no newtype needed.
+    // std::sync::mpsc::Sender implements ActionSink, so it can be passed directly.
     let (tx, rx) = std::sync::mpsc::channel();
 
-    let layer = Mapper::channel_layer::<MyRenderer, _>(tx)
-        .with_error_handler(|e| eprintln!("transport error: {e}"));
+    let layer = Mapper.layer(tx);
 
     tracing_subscriber::registry().with(layer).init();
 
